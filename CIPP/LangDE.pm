@@ -1,9 +1,9 @@
 package CIPP::LangDE;
 
-# $Id: LangDE.pm,v 1.3 1999/11/25 20:35:27 joern Exp $
+# $Id: LangDE.pm,v 1.6 2001/01/31 11:32:42 joern Exp $
 
 $VERSION = "0.01";
-$REVISION = q$Revision: 1.3 $;
+$REVISION = q$Revision: 1.6 $;
 
 use strict;
 
@@ -30,7 +30,7 @@ package CIPP::Lang;
 	var_invalid_type	=> "Ungültiger TYPE",
 
 	include_recursive	=> "%s wird rekursiv angewendet. Aufrufpfad: %s",
-	include_not_readable	=> "Kann Object '%s' nicht lesen. Dateiname: %s",
+	include_not_readable	=> "Object '%s' ist nicht lesbar oder existiert nicht. Dateiname: %s",
 	include_cipp_init	=> "Interner Fehler bei CIPP Präprozessor Initialisierung",
 	include_no_in_par	=> "Es dürfen keine Parameter an %s übergeben werden",
 	include_no_out_par	=> "%s hat keine Ausgabeparameter",
@@ -73,5 +73,12 @@ package CIPP::Lang;
 	perl_runtime		=> "Perl Fehler: %s",
 	
 	one_module_allowed	=> "<?MODULE> darf nur einmal verwendet werden",
-	module_missing		=> "Der <?MODULE> Befehl fehlt!"
+	module_missing		=> "Der <?MODULE> Befehl fehlt!",
+	
+	select_nesting		=> "Verschachtelung von <?SELECT> nicht erlaubt",
+	select_missing		=> "<?OPTION> darf nicht ohne <?SELECT> verwendet werden",
+	
+	geturl_mangling		=> "Die Optionen URLVAR und VAR dürfen nicht gleichzeitig verwendet werden",
+	
+	one_http_header_allowed	=> "<?!HTTPHEADER> darf nur einmal verwendet werden",
 );

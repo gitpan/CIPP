@@ -104,15 +104,23 @@ Loop with condition check before first iteration
 
 =item CONFIG
 
-Import a config file in your program
+Import a config file
 
 =item INCLUDE
 
 Insertion of a CIPP Include file in the actual CIPP code
 
-=item LIB
+=item MODULE
 
-Import a Perl module in your program
+Definition of a CIPP Perl Module
+
+=item REQUIRE
+
+Import a CIPP Perl Module
+
+=item USE
+
+Import a standard  Perl module
 
 =back
 
@@ -208,7 +216,15 @@ Replaces <IMG> tag
 
 =item INPUT
 
-Replaces <INPUT> tag
+Replaces <INPUT> tag, with sticky feature
+
+=item OPTION
+
+Replaces <OPTION> tag, with sticky feature
+
+=item SELECT
+
+Replaces <SELECT> Tag, with sticky feature
 
 =item TEXTAREA
 
@@ -256,13 +272,43 @@ Redirects to another URL internally
 
 =back
 
-=head2 Preprocessor
+=head1 COMMAND E<lt>?#>
 
 =over 8
 
-=item AUTOPRINT
+=item B<Type>
 
-Controls automatic output of HTML code
+Multi Line Comment
+
+=item B<Syntax>
+
+ <?#>
+ ...
+ <?/#>
+
+=item B<Description>
+
+This block command realizes a multiline comment. Simple comments are introduced with a single # sign, so you can only comment one line with them. All text inside a E<lt>?#> block will be treated as a comment and will be ignored. Nesting of E<lt>?#> is allowed.
+
+=item B<Example>
+
+This is a simple multi line comment.
+
+  <?#>
+    This text will be ignored.
+    All CIPP tags too.
+    So this is no syntax error
+    <?IF foo bar>
+  <?/#>
+
+You may nest <?#> blocks:
+
+  <?#>
+    bla foo
+    <?#>
+       foo bar
+    <?/#>
+  <?/#>
 
 =back
 
@@ -436,7 +482,7 @@ Switch AutoCommit off for the database 'bar' and throw the user defined exceptio
 
 =back
 
-=head1 COMMAND E<lt>?AUTOPRINT>
+=head1 COMMAND E<lt>?!AUTOPRINT>
 
 =over 8
 
@@ -446,11 +492,13 @@ Preprocessor
 
 =item B<Syntax>
 
- <?AUTOPRINT OFF>
+ <?!AUTOPRINT OFF>
 
 =item B<Description>
 
-With the E<lt>?AUTOPRINT OFF> command the preprocessor can be advised to suppress the generation of print statements for non CIPP blocks. The default setting is ON and it is only possible to switch it OFF and not the other way around.
+With the E<lt>?!AUTOPRINT OFF> command the preprocessor can be advised to suppress the generation of print statements for non CIPP blocks. The default setting is ON and it is only possible to switch it OFF and not the other way around.
+
+In earlier versions of CIPP this command was named E<lt>?AUTOPRINT>. This notation is depreciated, but will work for compatability reasons.
 
 =item B<Parameter>
 
@@ -460,9 +508,11 @@ Automatic generation of print statements for non CIPP blocks will be deactivated
 
 =item B<Note>
 
-Use this with care. Because this is a preprocessor command it will produce strange results if you use this in CIPP Includes.
+This is a preprocessor command. Please read the chapter about preprocessor commands for details about this.
 
-Instead you should use this command at the very top of your program file. CIPP will not generate any HTTP headers for you, if you use E<lt>?AUTOPRINT OFF>, so you have to do this on your own.
+You should use this command at the very top of your program file. CIPP will not generate any HTTP headers for you, if you use E<lt>?!AUTOPRINT OFF>, so you have to do this on your own. If you only want to generate a special HTTP header, use E<lt>?!HTTPHEADER> instead.
+
+The ,CIPP Introduction" Chapter contains a paragraph about CIPP Preprocessor Commands. Please refer to this discussion for details of E<lt>?!AUTOPRINT>.
 
 =item B<Example>
 
@@ -1105,7 +1155,7 @@ URL and Form Handling
 =item B<Syntax>
 
  <?GETURL NAME=object_file
-          [ MY ] URLVAR=url_variable
+          [ MY ] VAR=target_variable
           [ RUNTIME ] [ THROW=exception ] >
           [ PARAMS=parameters_variables ]
           [ PAR_1=value_1 ... PAR_n=value_n ] >
@@ -1122,9 +1172,13 @@ In CGI::CIPP and Apache::CIPP environments this is not necessary, because you wo
 
 This is the name of the specific file, expected as an URL in CGI::CIPP or Apache::CIPP environments and in dotC<-s>eparated object notation in a new.spirit environment.
 
+=item B<     VAR>
+
+This is the scalar variable where the generated URL will be stored in. In earlier versions of CIPP this option was named URLVAR. The usage of the URLVAR notation is depreciated, but it works for compatibility reasons. To prevent from logical errors CIPP throws an error if you use URLVAR and VAR inside of one command (e.g. to create an URL which contains a parameter called VAR or URLVAR).
+
 =item B<     URLVAR>
 
-This is the scalar variable where the generated URL will be stored in.
+Depreciated. See description of VAR.
 
 =item B<     MY>
 
@@ -1160,14 +1214,14 @@ It is highly recommended to use lower case variable names. Due to historical rea
 
 We are in a new.spirit environment and produce a <IMG> tag, pointing to a new.spirit object (btw: the easiest way of doing this is the <?IMG> command):
 
-  <?GETURL NAME="x.Images.Logo" MY URLVAR=$url>
+  <?GETURL NAME="x.Images.Logo" MY VAR=$url>
   <IMG SRC="$url">
 
 Now we link the CGI script "/secure/messager.cgi" in a CGI::CIPP or Apache::CIPP environment. We pass some parameters to this script. (Note the case sensitivity of the parameter names, we really should use lower case variables all the time!)
 
   <?VAR MY NAME=$Username>hans<?/VAR>
   <?VAR MY NAME=@id>(1,42,5)<?/VAR>
-  <?GETURL NAME="/secure/messager.cgi" MY URLVAR=$url
+  <?GETURL NAME="/secure/messager.cgi" MY VAR=$url
            PARAMS="$Username, @id" EVENT=delete>
   <A HREF="$url">delete messagse</A>
 
@@ -1513,36 +1567,70 @@ HTML Tag Replacement
 
 =item B<Syntax>
 
- <?INPUT [ VALUE=parameter_value ]
+ <?INPUT [ NAME=parameter_name ]
+         [ VALUE=parameter_value ]
+         [ SRC=image_object ]
+         [ TYPE=input_type ] [ STICKY[=sticky_var] ]
          [ additional_<INPUT>_parameters ... ] >
 
 =item B<Description>
 
-This generates a HTML E<lt>INPUT> tag where the content of the VALUE option is escaped to prevent HTML syntax clashes.
+This generates a HTML E<lt>INPUT> tag where the content of the VALUE option is escaped to prevent HTML syntax clashes. In case of TYPE="radio" or TYPE="checkbox" in conjunction with the STICKY Option, the state of the input widget will be preserved.
 
 =item B<Parameter>
+
+=item B<     NAME>
+
+The name of the input widget.
 
 =item B<     VALUE>
 
 This is the VALUE of the corresponding E<lt>INPUT> tag. Its content will be escaped.
 
+=item B<     SRC>
+
+This is the name of the image, expected as an URL in CGI::CIPP or Apache::CIPP environments and in dotC<-s>eparated object notation in a new.spirit environment.
+
+=item B<     TYPE>
+
+Only the TYPEs ,radio" and ,checkbox" are specially handled when the STICKY option is also given.
+
+=item B<     STICKY>
+
+If this option is set and the TYPE of the input widget is eiterh ,radio" or ,checkbox" CIPP will generate the CHECKED option automatically, if the value of the corresponding Perl variable (which is $parameter_name for TYPE="radio" and @parameter_name for TYPE="checkbox") equals to the VALUE of this widget. If you assign a value to the STICKY option, this will be taken as the Perl variable for checking the state of the widget. But the default behaviour of deriving the name from the NAME option will fit most cases.
+
 =item B<     additional_INPUT_parameters>
 
 All additional parameters are taken without changes into the generated E<lt>INPUT> tag.
 
+=item B<Note>
+
+If you use the STICKY feature in conjuncion with checkboxes, please note that the internal implementation may be ineffective, if you handle large checkbox groups. This is due the internal representation of the checkbox values as a list, so a grep is neccesary to check, wheter a checkbox is checked or not. If you feel uncomfortable about that, use a classic HTML E<lt>INPUT> tag, maybe with a loop around it, and check state of the checkboxes using a hash.
+
 =item B<Example>
 
-We generate two HTML input fields, a simple text and a password field, both initialized with some values.
+We generate two HTML input fields, a simple text and a password field, both initialized with some values. Also two checkboxes are generated, using the STICKY feature to initalize their state genericly.
 
   <?VAR MY NAME=$username>larry<?/VAR
   <?VAR MY NAME=$password>this is my "password"<?/VAR>
   <?INPUT TYPE=TEXT SIZE=40 VALUE=$username>
   <?INPUT TYPE=PASSWORD SIZE=40 VALUE=$password>
+
+  <?VAR MY NAME=$check>42<?/VAR>
+  <?INPUT TYPE=CHECKBOX NAME="check" VALUE="42"
+          STICKY> 42
+  <?INPUT TYPE=CHECKBOX NAME="check" VALUE="43"
+          STICKY> 43
+
 This will produce the following HTML code:
 
   <INPUT TYPE=TEXT SIZE=40 VALUE="larry">
   <INPUT TYPE=TEXT SIZE=40
          VALUE="this ist my &quot;password&quot;">
+
+  <INPUT TYPE=CHECKBOX NAME="check" VALUE="42"
+         CHECKED>
+  <INPUT TYPE=CHECKBOX NAME="check" VALUE="43">
 
 =back
 
@@ -1608,41 +1696,6 @@ A HTML form which adresses this CGI program may look like this (assuming we are 
 
 =back
 
-=head1 COMMAND E<lt>?LIB>
-
-=over 8
-
-=item B<Type>
-
-Import
-
-=item B<Syntax>
-
- <?LIB NAME=perl_module >
-
-=item B<Description>
-
-With this command you can access the extensive Perl module library. You can access any Perl module which is installed on your system.
-
-In a new.spirit environment you can place user defined modules in the prod/lib directory of your project, which is included in the library search path by default.
-
-=item B<Parameter>
-
-=item B<     NAME>
-
-This is the name of the module you want to use. Nested module names are delimited by ::. This is exactly what the Perl use pragma expects (you guessed right, CIPP simply translates E<lt>?LIB> to use :-).
-
-It is not possible to use a variable or expression for NAME, you must always use a literal string here.
-
-=item B<Example>
-
-The standard modules File::Path and Text::Wrap are imported to your program.
-
-  <?LIB NAME="File::Path">
-  <?LIB NAME="Text::Wrap">
-
-=back
-
 =head1 COMMAND E<lt>?LOG>
 
 =over 8
@@ -1701,6 +1754,58 @@ The error message "error in SQL statement" is added to the special logfile with 
 
 =back
 
+=head1 COMMAND E<lt>?MODULE>
+
+=over 8
+
+=item B<Type>
+
+Import
+
+=item B<Syntax>
+
+ <?MODULE NAME=cipp_perl_module >
+   ...
+ <?/MODULE>
+
+=item B<Description>
+
+With this command you define a CIPP Perl Module. This works currently in a new.spirit environment only.
+
+The generated Perl code will be installed in the project specific lib/ folder and can be imported with the E<lt>?REQUIRE> command. Don't E<lt>?USE> for CIPP Perl modules, because E<lt>?REQUIRE> does some database initialization.
+
+=item B<Parameter>
+
+=item B<     NAME>
+
+This is the name of the module you want to use. Nested module names are delimited by ::.
+
+It is not possible to use a variable or expression for NAME, you must always use a literal string here.
+
+=item B<Example>
+
+  <?MODULE NAME="Test::Module">
+
+  <?SUB NAME="new">
+    <?PERL>
+      my $class = shift;
+      return bless {
+         foo => 1,
+      }, $class;
+    <?/PERL>
+  <?/SUB>
+
+  <?SUB NAME="print_foo">
+    <?PERL>
+      my $self = shift;
+      print $self->{foo}, ,<p>\n";
+    <?/PERL>
+  <?/SUB>
+
+  <?/MODULE>
+
+=back
+
 =head1 COMMAND E<lt>?MY>
 
 =over 8
@@ -1738,7 +1843,44 @@ If you need a new variable for another CIPP command, you can most often use the 
 
 =item B<Example>
 
-See <?BLOCK>.
+See <?BLOCK>
+
+=back
+
+=head1 COMMAND E<lt>?OPTION>
+
+=over 8
+
+=item B<Type>
+
+HTML Tag Replacement
+
+=item B<Syntax>
+
+ <?OPTION [ VALUE=parameter_value ]
+          [ additional_<OPTION>_parameters ... ] >
+ ...
+ <?/OPTION>
+
+=item B<Description>
+
+This command generates a HTML E<lt>OPTION> tag, where the text inside the E<lt>OPTION> block is HTML escaped and the VALUE is quoted. The usage of the E<lt>?OPTION> command outside of a E<lt>?SELECT> block is forbidden. If the surrounding E<lt>?SELECT> command has its STICKY option set, the select state of the options are preserved (see E<lt>?SELECT> for more information about the STICKY feature).
+
+=item B<Parameter>
+
+=item B<     VALUE>
+
+This is the VALUE of the generated E<lt>OPTION> tag. Its content will be escaped.
+
+=item B<     additional_OPTION_parameters>
+
+All additional parameters are taken over without changes into the produced E<lt>OPTION> tag.
+
+=item B<Example>
+
+See the description of the <?SELECT> command for a complete example.
+
+.
 
 =back
 
@@ -1790,6 +1932,116 @@ If this list contains some elements a string based on the list is generated.
   <?/PERL>
   # OK, its easier to use 'join', but it's
   # only an example... :-)
+
+.
+
+=back
+
+=head1 COMMAND E<lt>?!PROFILE>
+
+=over 8
+
+=item B<Type>
+
+Preprocessor Command
+
+=item B<Syntax>
+
+ <?!PROFILE { ON | OFF }
+            [ DEEP ] >
+
+=item B<Description>
+
+This preprocessor command controls the generation of profiling code. This feature is currently experimental, the syntax of the E<lt>?!PROFILE> command may change in future.
+
+If you switch profiling on, CIPP will generate profile code for the rest of the file, respectively until a E<lt>?!PROFILE OFF> command occurs. Switching profiling at runtime is not possible, because the E<lt>?!PROFILE> command takes effect on the preprocessor.
+
+Currently two tasks are profiled: SQL statements and Include executions. If profiling is switched on, you'll get a line on STDERR for every executed SQL and Include command, which contains the corresponding execution time. You need the Perl module Time::HiRes installed on your system if you want to use profiling.
+
+=item B<Parameter>
+
+ON | OFF
+
+Switch profiling either on or off.
+
+=item B<     DEEP>
+
+If you set the DEEP option, the content all processed Includes will be profiled, too. Otherwise only the document itself, where the E<lt>?!PROFILE> command stands, will be profiled.
+
+Note that the DEEP switch can produce lots of output.
+
+=item B<Example>
+
+The following SQL Statement and Include will be profiled.
+
+  <?!PROFILE ON>
+  <?SQL SQL="select foo, bla
+             from   bar
+             where  baz=?"
+        PARAMS="$baz"
+        MY VAR="$foo, $bla">
+    $foo $bla<br>
+  <?/SQL>
+
+  <?INCLUDE NAME="/foo/bar.inc">
+
+  <?!/PROFILE OFF>
+
+  # no profiling here
+  <?INCLUDE NAME="/bar/foo.inc">
+
+Something like this will appear on STDERR and thus in your webserver error log:
+
+PROFILE 42421 START
+
+PROFILE 42421 SQL        select foo, baz   0.0178
+
+PROFILE 42421 INCLUDE    /foo/bar.inc      0.0020
+
+PROFILE 42421 STOP
+
+The 42421 is the PID of the serving process, so you can differ between outputs of several processes. You see the head of each SQL statement and the name of an Include, followed by the execution time in seconds.
+
+You can use the PROFILE option of the <?SQL> command to replace the output of the SQL statement with a user defined label. See <?SQL> for details.
+
+=back
+
+=head1 COMMAND E<lt>?REQUIRE>
+
+=over 8
+
+=item B<Type>
+
+Import
+
+=item B<Syntax>
+
+ <?REQUIRE NAME="cipp_perl_module" >
+
+=item B<Description>
+
+This command imports a module which was created with new.spirit in conjunction with the E<lt>?MODULE> command. You can't import other Perl modules, because E<lt>?REQUIRE> executes CIPP specific initialization code to establish database connections, if they're needed by the module.
+
+E<lt>?REQUIRE> uses internally the Perl command 'require' to import the module. So CIPP Perl Modules are unable to export symbols to the callers namespace. You have to fully quallify function names, or write OO style modules.
+
+=item B<Parameter>
+
+=item B<     NAME>
+
+This is the name of the module you want to use. Nested module names are delimited by ::.  This is the name of the module you provided with the E<lt>?MODULE> command.
+
+You may also place a expression here, which results to the name of the module.
+
+=item B<Example>
+
+  # refer to the description of <?MODULE> to see
+  # the implementation of the Test::Module module.
+  <?REQUIRE NAME="Test::Module">
+
+  <?PERL>
+    my $t = new Test::Module;
+    $t->print_foo;
+  <?/PERL>
 
 =back
 
@@ -1880,6 +2132,18 @@ With this parameter you can provide a user defined exception which should be thr
 
 The client side file upload will only function proper if you set the encoding type of the HTML form to ENCTYPE="multipart/form-data". Otherwise you will get a exception, that the file could not be fetched.
 
+There is another quirk you should notice. The variable which corresponds to the E<lt>INPUT NAME> option in the file upload form is a GLOB reference (due to the internal implementation of the CGI module, which CIPP uses). That means, if you use that variable in string context you get the client side filename of the uploaded file. But also you can use the variable as a filehandle, to read data from the file (this is what E<lt>?SAVEFILE> does for you).
+
+This GLOB thing is usually no problem, as long as you don't pass the variable as a binding parameter to a E<lt>?SQL> command (because you want to store the client side filename in the database). The DBI module (which CIPP uses for the database stuff) complains about passing GLOBS as binding parameters.
+
+The solution is to create a new variable assigned from the value of the file upload variable enforced to be in string context using double quotes.
+
+E<lt>?INTERFACE INPUT="$upfilename">
+
+E<lt>?MY $client_filename>
+
+E<lt>?PERL> $client_filename = "$upfilename" E<lt>?/PERL>
+
 =item B<Example>
 
 First we provide a HTML form with the file upload field.
@@ -1909,6 +2173,69 @@ The same procedure using the RUNTIME parameter.
 
 =back
 
+=head1 COMMAND E<lt>?SELECT>
+
+=over 8
+
+=item B<Type>
+
+HTML Tag Replacement
+
+=item B<Syntax>
+
+ <?SELECT [ NAME=parameter_name ]
+          [ MULTIPLE ] [ STICKY ]
+          [ additional_<SELECT>_parameters ... ] >
+ ...
+ <?/SELECT>
+ 
+
+=item B<Description>
+
+This command generates a selection widget providing preservation of the selection state (similar to the STICKY feature of the E<lt>?INPUT> command).
+
+=item B<Parameter>
+
+=item B<     NAME>
+
+The name of the formular widget.
+
+=item B<     MULTIPLE>
+
+If this is set, a multi selection list will be generated, instead of a single selection popup widget.
+
+=item B<     STICKY>
+
+If the STICKY option is set, the E<lt>?OPTION> commands inside the E<lt>?SELECT> block preserve their state in generating automatically a SELECTED option, if the corresponding entry was selected before. This is done in checking the value of the corresponding Perl variable (which is $parameter_name for a popup and @parameter_name for MULTIPLE selection list). If you assign a value to the STICKY option, this will be taken as the Perl variable for checking the state of the widget. But the default behaviour of deriving the name from the NAME option will fit most cases.
+
+=item B<     additional_SELECT_parameters>
+
+All additional parameters are taken over without changes into the produced E<lt>SELECT> tag.
+
+=item B<Note>
+
+If you use the STICKY feature in conjuncion with a MULTIPLE selection list widget, please note that the internal implementation may be ineffective, if you handle large lists. This is due the internal representation of the list values as an array, so a grep is neccesary to check, wheter a list entry is selected or not. If you feel uncomfortable about that, use classic HTML E<lt>SELECT> and E<lt>OPTION> tags, maybe with a loop around it, and check state of the checkboxes using a hash.
+
+=item B<Example>
+
+This is a complete CIPP program, which provides a mulitple selection list and preservers its state over subsequent executions of the program.
+
+  <?INCINTERFACE OPTIONAL="@list">
+
+  <?FORM ACTION="sticky.cgi">
+
+  <?SELECT NAME="list" MULTIPLE STICKY>
+  <?OPTION VALUE="1">value 1<?/OPTION>
+  <?OPTION VALUE="2">value 2<?/OPTION>
+  <?OPTION VALUE="3">value 3<?/OPTION>
+  <?/SELECT>
+
+  <?INPUT TYPE="submit" VALUE="send">
+
+  <?/FORM>
+
+=back
+
 =head1 COMMAND E<lt>?SQL>
 
 =over 8
@@ -1928,6 +2255,7 @@ SQL
        [ DB=database_name ]
        [ THROW=exception ] >
        [ MY ]
+       [ PROFILE=profile_label ]
  ...
  <?/SQL>
 
@@ -2050,6 +2378,18 @@ With this parameter you can provide a user defined exception which should be thr
 =item B<     MY>
 
 If you set the MY switch all created variables will be declared using 'my'. Their scope reaches to the end of the block which surrounds the E<lt>?SQL> command.
+
+=item B<     PROFILE>
+
+Here you can define a profile label for this SQL statement. If you use the E<lt>?!PROFILE> command this label is printed out instead of the head of the SQL statement. See the chapter of E<lt>?!PROFILE> about details.
+
+Breaking the E<lt>?SQL> loop
+
+If you want to break the SQL loop of a select statement, simply use this Perl Code:
+
+  <?PERL>
+    last SQL;
+  <?/PERL>
 
 =item B<Example>
 
@@ -2294,6 +2634,43 @@ Hint: in CGI::CIPP and Apache::CIPP environments you also can use the <?A> comma
 
 =back
 
+=head1 COMMAND E<lt>?USE>
+
+=over 8
+
+=item B<Type>
+
+Import
+
+=item B<Syntax>
+
+ <?USE NAME=perl_module >
+
+=item B<Description>
+
+With this command you can access the extensive Perl module library. You can access any Perl module which is installed on your system.
+
+In a new.spirit environment you can place user defined modules in the prod/lib directory of your project, which is included in the library search path by default.
+
+If you want to use a CIPP Module (generated with new.spirit and the E<lt>?MODULE> command), use E<lt>?REQUIRE> instead.
+
+=item B<Parameter>
+
+=item B<     NAME>
+
+This is the name of the module you want to use. Nested module names are delimited by ::. This is exactly what the Perl use pragma expects (you guessed right, CIPP simply translates E<lt>?USE> to use :-).
+
+It is not possible to use a variable or expression for NAME, you must always use a literal string here.
+
+=item B<Example>
+
+The standard modules File::Path and Text::Wrap are imported to your program.
+
+  <?USE NAME="File::Path">
+  <?USE NAME="Text::Wrap">
+
+=back
+
 =head1 COMMAND E<lt>?VAR>
 
 =over 8
@@ -2413,6 +2790,6 @@ Joern Reder <joern@dimedis.de>
 
 =head1 COPYRIGHT
 
-Copyright (C) 1999 by dimedis GmbH, All Rights Reserved.
-This documentation is free; you can redistribute it and/or
-modify it under the same terms as Perl itself.
+Copyright (C) 1999 by Jörn Reder and dimedis GmbH, All Rights
+Reserved. This documentation is free; you can redistribute it
+and/or modify it under the same terms as Perl itself.

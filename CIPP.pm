@@ -1,9 +1,13 @@
+# $Id: CIPP.pm,v 1.42 2001/01/31 11:32:42 joern Exp $
+
+# TODO
+#
+# - bei General Exception pr¸fen ob HTTP Header schon generiert
+
 package CIPP;
 
-#$Id: CIPP.pm,v 1.31 2000/02/15 20:09:19 joern Exp $
-
-$VERSION = "2.13";
-$REVISION = q$Revision: 1.31 $; 
+$VERSION = "2.15";
+$REVISION = q$Revision: 1.42 $; 
 
 use strict;
 use Config;
@@ -18,7 +22,6 @@ use CIPP::DB_Sybase;
 
 my %INCLUDE_CACHE;	# Cache f¸r Include CIPP Objekte
 
-
 # alle Tags, die nicht geschlossen werden
 $CIPP::cipp_single_tags = undef;
 $CIPP::cipp_single_tags =
@@ -26,14 +29,15 @@ $CIPP::cipp_single_tags =
 	"|execute|dbquote|commit|rollback|my|savefile|config".
 	"|htmlquote|urlencode|hiddenfields|img|".
 	"|input|geturl|interface|lib|incinterface|getparam|getparamlist".
-	"|getdbhandle|autoprint|apredirect|apgetrequest|exit|use".
+	"|getdbhandle|autoprint|!autoprint|apredirect|apgetrequest|exit|use|require".
+	"|!profile".
 # aus Kompatibilt‰tsgr¸nden
 	"|imgurl|cgiurl|docurl|cgiform|";
 
 # alle Tags, die wieder geschlossen werden muessen
 $CIPP::cipp_multi_tags  =
 	"|if|var|do|while|perl|sql|try|catch|block|foreach".
-	"|form|a|textarea|sub|module|html|";
+	"|form|a|textarea|sub|module|html|select|option|!httpheader|#|!#|";
 
 # Hash-Array fuer alle Tags, als Value wird der Name der behandelnden
 # Methode eingetragen
@@ -69,6 +73,8 @@ $CIPP::cipp_multi_tags  =
 		"img",		"Process_Img",
 		"hiddenfields",	"Process_Hiddenfields",
 		"input",	"Process_Input",
+		"select",	"Process_Select",
+		"option",	"Process_Option",
 		"textarea",	"Process_Textarea",
 		"a",		"Process_A",
 		"interface",	"Process_Interface",
@@ -78,12 +84,18 @@ $CIPP::cipp_multi_tags  =
 		"getparamlist",	"Process_Getparamlist",
 		"getdbhandle",	"Process_Getdbhandle",
 		"autoprint",	"Process_Autoprint",
+		"!autoprint",	"Process_Autoprint",
 		"apredirect",	"Process_Apredirect",
 		"apgetrequest",	"Process_Apgetrequest",
 		"sub",		"Process_Sub",
 		"exit",		"Process_Exit",
 		"module",	"Process_Module",
 		"use",		"Process_Use",
+		"require",	"Process_Require",
+		"!profile",	"Process_Profile",
+		"!httpheader",	"Process_Httpheader",
+		"!#",		"Process_Comment",
+		"#",		"Process_Comment",
 # aus Kompatiblit‰tsgr¸nden
 		"imgurl",	"Process_Imgurl",
 		"cgiurl",	"Process_Cgiurl",
@@ -171,6 +183,7 @@ sub new {
 			"use_inc_cache" => $use_inc_cache,
 			"perl_interpreter_path" => $Config{'perlpath'},
 			"lang" => $lang,
+			"profile" => undef,
 			"context_stack" => []
 	};
 
@@ -290,6 +303,13 @@ sub Get_Used_Macros {
 	return undef if ! $self->{init_status};
 
 	return $self->{used_macros};
+}
+
+sub Get_Used_Modules {
+	my $self = shift;
+	return undef if ! $self->{init_status};
+
+	return $self->{used_modules};
 }
 
 sub Get_Direct_Used_Objects {
@@ -591,9 +611,8 @@ sub Generate_CGI_Code {
 	
 	$self->{target}->Write ("#!$self->{perl_interpreter_path}\n") if not $apache_mod;
 	$self->{target}->Write ("package CIPP_Exec;\n");
-	$self->{target}->Write (qq{my \$cipp_back_prod_path="$self->{back_prod_path}";\n});
-	$self->{target}->Write (qq[BEGIN{\$cipp_back_prod_path="$self->{back_prod_path}";}\n]);
-
+	$self->{target}->Write (qq{\$cipp::back_prod_path="$self->{back_prod_path}";\n});
+	$self->{target}->Write (qq[BEGIN{\$cipp::back_prod_path="$self->{back_prod_path}";}\n]);
 	
 	# wenn gefordert, use strict einbauen
 	my $use_strict = '';
@@ -625,10 +644,10 @@ BEGIN {
 		$0 =~ m!^(.*)[/\\\\][^/\\\\]+$!;chdir $1;
 	}
 ).qq[
-	unshift (\@INC, "\$cipp_back_prod_path/cgi-bin");
-	unshift (\@INC, "\$cipp_back_prod_path/lib");
+	unshift (\@INC, "\$cipp::back_prod_path/cgi-bin");
+	unshift (\@INC, "\$cipp::back_prod_path/lib");
 }
-do "\$cipp_back_prod_path/config/cipp.conf";
+do "\$cipp::back_prod_path/config/cipp.conf";
 ]);
 	}
 	$self->{target}->Write (
@@ -648,24 +667,15 @@ qq[
 eval { # CIPP-GENERAL-EXCEPTION-EVAL
 package CIPP_Exec;
 ]);
-	if ( $self->{print_content_type} and 
-	     $self->{mime_type} ne 'cipp/dynamic' ) {
-		$self->{target}->Write (
-			"print \"Content-type: ".$self->{mime_type}.
-			"\\nPragma: no-cache\\n\\n\" if not \$CIPP_Exec::_cipp_no_http;\n");
 
-		$self->{target}->Write (
-			q{$CIPP_Exec::cipp_http_header_printed = 1;}."\n");
-	}
+	# Datenbankcode generieren
 	
-	if ( $self->{mime_type} eq 'text/html' and not $apache_mod 
-	     and not $self->{autoprint_off} ) {
-		$self->{target}->Write ( 
-			"print \"<!-- generated with CIPP ".
-			$self->{version}."/$CIPP::REVISION, ".
-			"(c) 1997-1999 dimedis GmbH -->\\n\";\n");
-	}
-	
+	$self->Generate_Database_Code ();
+
+	# HTTP Header
+
+	$self->Generate_HTTP_Header_Code ();
+
 	# explizites Importieren von CGI Parameter, wenn $cgi_input
 	# angegeben wurde, sonst Importieren in den Namespace ¸ber
 	# CGI->import_names()
@@ -707,10 +717,6 @@ package CIPP_Exec;
 		 q[my $cipp_general_exception = $@;]."\n"
 	);
 
-	# Datenbankcode generieren
-	
-	$self->Generate_Database_Code ();
-
 	if ( not $apache_mod ) {
 		$self->{output}->Write (
 			"die \$cipp_general_exception if \$cipp_general_exception ".
@@ -723,6 +729,66 @@ package CIPP_Exec;
 		);
 	}
 }
+
+sub Generate_HTTP_Header_Code {
+	my $self = shift;
+
+	my $apache_mod = $self->{apache_mod};
+
+	# Apache::CIPP does the HTTP header stuff
+	return if $apache_mod;
+
+	# Should a content-type be set?
+
+	if ( $self->{print_content_type} and 
+	     $self->{mime_type} ne 'cipp/dynamic' ) {
+		$self->{target}->Write (
+			"\$CIPP_Exec::cipp_http_header{'Content-type'} = ".
+			"'$self->{mime_type}';\n"
+		);
+		
+#		$self->{target}->Write (
+#			"print \"Content-type: ".$self->{mime_type}.
+#			"\\nPragma: no-cache\\n\\n\" if not \$CIPP_Exec::_cipp_no_http;\n");
+#
+#		$self->{target}->Write (
+#			q{$CIPP_Exec::cipp_http_header_printed = 1;}."\n");
+	}
+
+	# did a <?!HTTPHEADER> command occur? Then insert the code.
+
+	if ( $self->{http_header_perl_code} ) {
+		$self->{target}->Write (
+			"{\n".
+			$self->{http_header_perl_code}.
+			"}\n"
+		);
+	}
+
+	# now produce the http header generation code
+
+	$self->{target}->Write (
+		qq[# generate http header\n].
+		qq[{\n].
+		q[foreach my $cipp_http_header ( keys %CIPP_Exec::cipp_http_header ) {]."\n".
+		q[  print "$cipp_http_header: $CIPP_Exec::cipp_http_header{$cipp_http_header}\\n";]."\n".
+		q[  $CIPP_Exec::cipp_http_header_printed = 1;]."\n".
+		q[}]."\n".
+		q[print "\\n" if $CIPP_Exec::cipp_http_header_printed;]."\n".
+		qq[}\n]
+	);
+	
+	# print CIPP remark
+	
+	if ( $self->{mime_type} eq 'text/html' and not $apache_mod 
+	     and not $self->{autoprint_off} ) {
+		$self->{target}->Write ( 
+			"print \"<!-- generated with CIPP ".
+			$self->{version}."/$CIPP::REVISION, ".
+			"(c) 1997-1999 dimedis GmbH -->\\n\";\n");
+	}
+}
+
 
 sub Generate_Database_Code {
 	my $self = shift;
@@ -750,7 +816,6 @@ sub Generate_Database_Code {
 \$cipp_db_${db}::password = \$cipp_apache_request->dir_config ("db_${db}_password");
 \$cipp_db_${db}::autocommit = \$cipp_apache_request->dir_config ("db_${db}_auto_commit");
 };
-
 		}
 		
 		my $driver = $self->{db_driver}{$db};
@@ -838,15 +903,20 @@ sub Preprocess {
 
 		$found = ( $chunk =~ /$magic_reg$/ );
 
+		my $context = $self->{context_stack}->
+					[@{$self->{context_stack}}-1];
+
 		if ( $found ) {
 			# CIPP-Tag gefunden, Bereich davor verarbeiten
 			$chunk =~ s/$magic_reg$//;	# Magic entfernen
 			$chunk =~ s/\r//g;
 
-			# gelesenen Block ausgeben
+			# gelesenen Block ausgeben, wenn wir nicht
+			# in einem Kommentarblock sind
 
 			$self->Chunk_Out (\$chunk, $in_print_statement,
-					  $gen_print, $from_line);
+					  $gen_print, $from_line)
+				if $context ne 'comment';
 
 			# gefundenes CIPP-Tag verarbeiten
 			# Ende des Tags suchen
@@ -875,6 +945,13 @@ sub Preprocess {
 							# dann / entfernen und
 							# dafuer $end_tag setzen
 			
+			# Wenn wir in einem Kommentarblock sind werden
+			# nur Kommentarbefehle verarbeitet
+			
+			if ( $context eq 'comment' and $tag ne '!#' and $tag ne '#' ) {
+				next PREPROCESS;
+			}
+
 			# Optionen rausholen, d.h. TAG-Bezeichner rausschneiden
 
 			($options = $chunk) =~ s/^\s*[^\s]+\s*//;
@@ -997,20 +1074,22 @@ sub Chunk_Out {
 		# Chunk ist nicht leer
 		my $context = $self->{context_stack}->
 					[@{$self->{context_stack}}-1];
-		if ( $context eq 'html' && $gen_print ) {
-			# HTML-Context: es wird ein print qq[] Befehl
-			# generiert
-			# ggf. Debugging-Code erzeugen
-			$output->Write (
-				"\n\n\n\n# cippline $from_line ".'"'.
-				 $self->{call_path}.'"'."\n" );
+		if ( $context eq 'html' ) {
+			if ( $gen_print ) {
+				# HTML-Context: es wird ein print qq[] Befehl
+				# generiert
+				# ggf. Debugging-Code erzeugen
+				$output->Write (
+					"\n\n\n\n# cippline $from_line ".'"'.
+					 $self->{call_path}.'"'."\n" );
 
-			# Chunk muss via print ausgegeben werden
-			$output->Write ("print qq[");
-			$$chunk_ref =~ s/\[/\\\[/g;
-			$$chunk_ref =~ s/\]/\\\]/g;
-			$output->Write ($$chunk_ref);
-			$output->Write ("];\n");
+				# Chunk muss via print ausgegeben werden
+				$output->Write ("print qq[");
+				$$chunk_ref =~ s/\[/\\\[/g;
+				$$chunk_ref =~ s/\]/\\\]/g;
+				$output->Write ($$chunk_ref);
+				$output->Write ("];\n");
+			}
 		} elsif ( $context eq 'perl' ) {
 			# <?PERL>Context
 			# Chunk wird unveraendert uebernommen
@@ -1020,6 +1099,8 @@ sub Chunk_Out {
 			# Chunk wird mit escapten } uebernommen
 			$$chunk_ref =~ s/\}/\\\}/g;
 			$output->Write ($$chunk_ref);
+		} elsif ( $context eq 'comment' ) {
+			# Hier machen wir nix.
 		} else {
 			die "Unknown context '$context'";
 		}
@@ -1070,7 +1151,8 @@ sub Format_Debugging_Source {
 		$path =~ /([^:]+)$/;
 		my $name = $1;
 		$path =~ s/:$name//;
-		if ( not defined $object{$name} ) {
+
+		if ( $name and not defined $object{$name} ) {
 			my $object_type;
 			if ( not $self->{apache_mod} ) {
 				$object_type = $self->Get_Object_Type ($name);
@@ -1165,10 +1247,12 @@ sub Format_Perl_Errors {
 	my @errors = split (/\n/, $$error_sref);
 	my @code = split (/\n/, $$code_sref);
 
+	my $found_error;
+
 	foreach my $error (@errors) {
 		my ($line) = $error =~ m!\(eval\s+\d+\)\s+line\s+(\d+)!;
 		next if not $line;
-	
+
 		my $i = $line+1;
 
 		my $cipp_line = -1;
@@ -1176,6 +1260,7 @@ sub Format_Perl_Errors {
 
 		$error =~ s/at\s+\(eval\s+\d+\)\s+/at /;
 		$error =~ s/\,.*?chunk\s+\d+//;
+
 		while ( $i > 0 ) {
 			if ( $code[$i] =~ /^# cippline\s+(\d+)\s+"([^"]+)/ ) {
 				$cipp_line = $1;
@@ -1194,8 +1279,14 @@ sub Format_Perl_Errors {
 		push @{$self->{message}},
 			$cipp_call_path."\t".$cipp_line."\t".$error;
 
+		$found_error = 1;
 	}
-	
+
+	if ( not $found_error ) {
+		push @{$self->{message}},
+			"\t0\t".$$error_sref;
+	}
+
 	return $self->Format_Debugging_Source;
 }
 
@@ -1465,13 +1556,23 @@ sub Process_Include {
 	my $MACRO;	# CIPP Object f¸r Include
 
 	my $need_to_preprocess = 1;
-
+	
+	# Schl¸ssel f¸r Include-Cache: Name des Objektes + Flag,
+	# ob print Befehle generiert werden sollen oder nicht
+	# (cipp/dynamic), da so jeweils unterschiedliche Versionen
+	# des Includes entstehen.
+	my $inc_cache_key = $name.($self->{gen_print}?"_with_print":"_without_print");
+	
+	if ( $self->{apache_mod} ) {
+		$inc_cache_key .= "-".$ENV{SERVER_NAME};
+	}
+	
 	if ( $self->{use_inc_cache} ) {
 		# Cache ist eingeschaltet
-		if ( exists $INCLUDE_CACHE{$name} ) {
+		if ( exists $INCLUDE_CACHE{$inc_cache_key} ) {
 			# unser Objekt ist im Cache, fein!
-			$MACRO = $INCLUDE_CACHE{$name}->{cipp_object};
-			$code  = ${$INCLUDE_CACHE{$name}->{code}};
+			$MACRO = $INCLUDE_CACHE{$inc_cache_key}->{cipp_object};
+			$code  = ${$INCLUDE_CACHE{$inc_cache_key}->{code}};
 			$need_to_preprocess = 0;
 		}
 	}
@@ -1483,10 +1584,18 @@ sub Process_Include {
 			 $self->{default_db}, $self->{call_path}.
 			 "[".$self->{input}->Get_Line_Number."]:".$name,
 			 $self->{skip_header_line}, $self->{debugging},
-			 $self->{result_type}, $self->{use_strict},
+			 "include", $self->{use_strict},
 			 $self->{persistent}, $self->{apache_mod},
 			 $self->{project}, $self->{use_inc_cache},
 			 $self->{lang});
+
+		# Profiling an Includes vererben?
+		$MACRO->{profile} = 'deep' if $self->{profile} eq 'deep';
+
+		# Haben wir schon <?!HTTPHEADER> gehabt?
+		if ( exists $self->{http_header_perl_code} ) {
+			$MACRO->{http_header_perl_code} = 1;
+		}
 
 		if ( ! $MACRO->Get_Init_Status ) {
 			$self->ErrorLang ("INCLUDE", 'include_cipp_init');
@@ -1501,12 +1610,19 @@ sub Process_Include {
 		# wenn Cache eingeschaltet: Cachen!
 		
 		if ( $self->{use_inc_cache} ) {
-			$INCLUDE_CACHE{$name}->{cipp_object} = $MACRO;
-			$INCLUDE_CACHE{$name}->{code} = \$code;
+			$INCLUDE_CACHE{$inc_cache_key}->{cipp_object} = $MACRO;
+			$INCLUDE_CACHE{$inc_cache_key}->{code} = \$code;
 			# input File schliessen
 			# (die werden sonst erst beim Script Ende
 			# geschlossen, da kommt man schnell ans 'ulimit -n')
 			$MACRO->{input} = undef;
+		}
+		
+		# Wurde dort <?!HTTPHEADER> verwendet?
+		if ( not exists $self->{http_header_perl_code} and
+		         exists	$MACRO->{http_header_perl_code} ) {
+			$self->{http_header_perl_code} =
+				$MACRO->{http_header_perl_code};
 		}
 	}
 
@@ -1726,6 +1842,17 @@ sub Process_Include {
 	}
 
 	
+	# Ist Profiling eingeschaltet?
+	if ( $self->{profile} ) {
+		$code_out_before =
+			$self->get_profile_start_code().
+			$code_out_before;
+		$code_out_after .=
+			$self->get_profile_end_code (
+				"INCLUDE", $name
+			);
+	}
+	
 	# Code ausgeben
 	$self->{output}->Write (
 		$code_out_before.
@@ -1791,6 +1918,14 @@ sub Process_Sql {
 		if ( defined $dr ) {
 			$self->{output}->Write ($dr->End_SQL());
 		}
+
+		if ( $self->{profile} ) {
+			$self->{output}->Write (
+				$self->get_profile_end_code (
+					"SQL", pop @{$self->{sql_profile_stack}}
+				)
+			);
+		}
 		return $in_print_statement;
 	}
 
@@ -1803,10 +1938,11 @@ sub Process_Sql {
 	# Fehler auf, der Stack muﬂ das SQL Statement aber schon
 	# enthalten, sonst gibt's Probleme mit <?/SQL>
 	push @{$self->{sql_driver_stack}}, undef;
+	push @{$self->{sql_profile_stack}}, undef;
 
 	$self->Check_Options (
 		"SQL", "", 
-		"SQL DB VAR PARAMS RESULT THROW MAXROWS WINSTART WINSIZE MY",
+		"SQL DB VAR PARAMS RESULT THROW MAXROWS WINSTART WINSIZE MY PROFILE",
 		$opt) || return 1;
 
 	if ( defined $$opt{winstart} ^ defined $$opt{winsize} ) {
@@ -1842,6 +1978,17 @@ sub Process_Sql {
 
 	pop @{$self->{sql_driver_stack}};
 	push @{$self->{sql_driver_stack}}, $dr;
+
+	if ( $self->{profile} ) {
+		$self->{output}->Write (
+			$self->get_profile_start_code
+		);
+
+		pop @{$self->{sql_profile_stack}};
+		my $profile = $opt->{profile} || substr ($opt->{sql},0,38);
+		$profile =~ s/\s+/ /g;
+		push @{$self->{sql_profile_stack}}, $profile;
+	}
 
 	$self->{output}->Write (
 		$dr->Begin_SQL (
@@ -1992,7 +2139,7 @@ sub Process_Getdbhandle {
 	my $self = shift;
 	my ($opt, $end_tag) = @_;
 
-	$self->Check_Options ("GETDBHANDLE", "VAR", "MY", $opt)
+	$self->Check_Options ("GETDBHANDLE", "VAR", "MY DB", $opt)
 		 || return 1;
 
 	my ($db, $driver) = $self->resolve_db ('GETDBHANDLE', $$opt{db});
@@ -2398,7 +2545,7 @@ sub Process_Config {
 		$name =~ s/^[^\.]+\.//;
 
 		$self->{output}->Write (qq{
-		CIPP::Runtime::Read_Config("\$cipp_back_prod_path/config/$name.config", "$$opt{nocache}");
+		CIPP::Runtime::Read_Config("\$cipp::back_prod_path/config/$name.config", "$$opt{nocache}");
 		});
 	} else {
 		$self->{output}->Write (qq{
@@ -2503,8 +2650,19 @@ sub Process_Geturl {
 	my $self = shift;
 	my ($opt, $end_tag) = @_;
 
-	$self->Check_Options ("GETURL", "NAME URLVAR", "*", $opt)
+	$self->Check_Options ("GETURL", "NAME", "*", $opt)
 		 || return 1;
+
+	# mangle URLVAR and VAR options. URLVAR is depreciated.
+	
+	if ( $opt->{var} ) {
+		if ( $opt->{urlvar} ) {
+			$self->ErrorLang ("GETURL", 'geturl_mangling', []);
+			return 1;
+		}
+		$opt->{urlvar} = $opt->{var};
+		delete $opt->{var};
+	}
 
 	my $name = $$opt{name};
 	my $runtime = $$opt{runtime};
@@ -2957,17 +3115,168 @@ sub Process_Input {
 	my ($par, $val);
 	while ( ($par,$val) = each %{$opt} ) {
 		if ( $par eq 'value' ) {
+			# VALUE Options werden gequotet!
 			$code .= qq[ VALUE="}.CIPP::Runtime::Field_Quote].
 		   		 qq[(qq{$$opt{value}}).qq{"];
+		} elsif ( $par eq 'src' and not $self->{apache_mod} ) {
+			# Die SRC Option enth‰lt eine Bildreferenz (nur wichtig
+			# in non Apache Modi)
+			if ( ! defined $self->Object_Exists ($val) ) {
+				$self->ErrorLang ("INPUT", 'object_not_found', [$val]);
+				return 1;
+			}
+			my $type = $self->Get_Object_Type ($val);
+			if ( $type ne 'cipp-img' ) {
+				$self->ErrorLang ("INPUT", 'img_no_image', [$val]);
+				return 1;
+			}
+			my $object_url = $self->Get_Object_URL ($val);
+			$code .= qq[ src="$object_url"];
 		} else {
-			$par =~ tr/a-z/A-Z/;	# schˆner so, sacht der Jˆrn
-			$code .= qq[ $par="$val"];
+			# alle anderen Optionen werden ¸bernommen
+			$par =~ tr/A-Z/a-z/;	# schˆner so, sacht der Jˆrn
+			if ( $par ne 'sticky' ) {
+				$code .= qq[ $par="$val"];
+			}
 		}
 	}
 
+	my $sticky_var = $opt->{sticky};
+
+	if ( $sticky_var ) {
+		if ( $opt->{type} =~ /^radio$/i and 
+		     $opt->{name} !~ /\$/ and not $opt->{checked} ) {
+			# sticky feature for type="radio"
+	     		if ( $sticky_var == 1 ) {
+				$sticky_var = '$'.$opt->{name};
+			}
+			$code .= qq[},($sticky_var eq qq{$opt->{value}} ? " checked>\\n":">\\n");\n];
+		} elsif ( $opt->{type} =~ /^checkbox$/i and
+		          $opt->{name} !~ /\$/ and not $opt->{checked} ) {
+			# sticky feature for type="checkbox"
+			if ( $sticky_var == 1 ) {
+				$sticky_var = '@'.$opt->{name};
+			}
+			$code .= qq[},(grep /^$opt->{value}\$/,$sticky_var) ? " checked>\\n":">\\n";\n];
+		}
+	} else {
+		$code .= ">};\n";
+	}
+
+	$self->{output}->Write($code);
+
+	return 1;
+}
+
+sub Process_Select {
+#
+# INPUT:	1. Options
+#		2. Ende-Tag?
+#
+# OUTPUT:	1. Danach innerhalb eines PRINT-Statements?
+#
+	my $self = shift;
+	my ($opt, $end_tag) = @_;
+
+	if ( $end_tag ) {
+		$self->{__inside_select_tag} = undef;
+		$self->Check_Options ("/SELECT", "", "", $opt) || return 1;
+		$self->{output}->Write(
+			qq{print "</SELECT>\\n";}
+		);
+		return 1;
+	}
+
+	if ( $self->{__inside_select_tag} ) {
+		$self->ErrorLang ("SELECT", 'select_nesting', []);
+		return 1;
+	}
+
+	$self->{__inside_select_tag} = $opt;
+
+	$self->Check_Options ("SELECT", "NAME", "*", $opt) || return 1;
+
+	my $code = qq[print qq{<SELECT];
+	my ($par, $val);
+	while ( ($par,$val) = each %{$opt} ) {
+		if ( $par ne 'sticky' ) {
+			$code .= qq[ $par="$val"];
+		}
+	}
 	$code .= ">};\n";
 
 	$self->{output}->Write($code);
+
+	return 1;
+}
+
+sub Process_Option {
+#
+# INPUT:	1. Options
+#		2. Ende-Tag?
+#
+# OUTPUT:	1. Danach innerhalb eines PRINT-Statements?
+#
+	my $self = shift;
+	my ($opt, $end_tag) = @_;
+
+	if ( $end_tag ) {
+		$self->Check_Options ("/OPTION", "", "", $opt) || return 1;
+		pop @{$self->{context_stack}};
+		$self->{output}->Write(
+			qq[}),"</OPTION>\\n";]
+		);
+		return 1;
+	}
+
+	my $select_options = $self->{__inside_select_tag};
+	if ( not $select_options ) {
+		$self->ErrorLang ("OPTION", 'select_missing', []);
+		return 1;
+	}
+
+	$self->Check_Options ("OPTION", "", "*", $opt) || return 1;
+
+	my $code = qq[print qq{<OPTION];
+
+	my ($par, $val);
+	while ( ($par,$val) = each %{$opt} ) {
+		if ( $par eq 'value' ) {
+			$code .= qq[ VALUE="}.CIPP::Runtime::Field_Quote].
+		   		 qq[(qq{$$opt{value}}).qq{"];
+		} else {
+			$par =~ tr/A-Z/a-z/;	# schˆner so, sacht der Jˆrn
+			if ( $par ne 'sticky' ) {
+				$code .= qq[ $par="$val"];
+			}
+		}
+	}
+
+	my $sticky_var = $select_options->{sticky} || $opt->{sticky};
+
+	if ( $sticky_var ) {
+		if ( $opt->{name} !~ /\$/ and not $opt->{selected} and
+		     $select_options->{multiple} ) {
+			if ( $sticky_var == 1 ) {
+				$sticky_var = '@'.$select_options->{name};
+			}
+			$code .= qq[},(grep /^$opt->{value}\$/,$sticky_var) ? " selected>":">\\n",\n];
+		} elsif ( $opt->{name} !~ /\$/ and not $opt->{selected} ) {
+			if ( $sticky_var == 1 ) {
+				$sticky_var = '$'.$select_options->{name};
+			}
+			$code .= qq[},($sticky_var eq qq{$opt->{value}}) ? " selected>":">\\n",\n];
+		}
+	} else {
+		$code .= ">},\n";
+	}
+
+	$self->{output}->Write($code);
+	$self->{output}->Write (
+		qq[CIPP::Runtime::HTML_Quote (qq{]
+	);
+
+	push @{$self->{context_stack}}, 'var';
 
 	return 1;
 }
@@ -3258,7 +3567,7 @@ sub Process_Autoprint {
 	my $self = shift;
 	my ($opt, $end_tag) = @_;
 
-	$self->Check_Options ("AUTOPRINT", "", "OFF ON", $opt) || return 1;
+	$self->Check_Options ("!AUTOPRINT", "", "OFF ON", $opt) || return 1;
 
 	if ( $$opt{off} ) {
 		$self->{gen_print} = 0;
@@ -3287,6 +3596,7 @@ sub Process_Apredirect {
 	my $url = $$opt{url};
 	
 	$self->{output}->Write (
+		qq{undef \@CGI::QUERY_PARAM;\n}.
 		qq{\$cipp_apache_request->internal_redirect ("$url");}
 	);
 
@@ -3373,20 +3683,145 @@ sub Process_Use {
 	my $self = shift;
 	my ($opt, $end_tag) = @_;
 
-	$self->Check_Options ("USE", "NAME", "NOCIPP", $opt) || return 1;
-
-	my $init = '';
-	if ( not $$opt{nocipp} ) {
-		$init = "$$opt{name}->cipp_init;";
-	}
+	$self->Check_Options ("USE", "NAME", "", $opt) || return 1;
 
 	$self->{output}->Write(
-		qq[eval "use $$opt{name};$init";\n].
-		qq[die \$\@ if \$\@;\n]
+		qq[use $$opt{name};\n]
 	);
 
 	return 1;
 }
+
+sub Process_Require {
+#
+# INPUT:	1. Options
+#		2. Ende-Tag?
+#
+# OUTPUT:	1. Danach innerhalb eines PRINT-Statements?
+#
+	my $self = shift;
+	my ($opt, $end_tag) = @_;
+
+	$self->Check_Options ("REQUIRE", "NAME", "", $opt) || return 1;
+
+	$self->{output}->Write(
+		qq[{ my \$cipp_mod = "$$opt{name}";\n].
+		qq[\$cipp_mod =~ s!::!/!og;\n].
+		qq[require \$cipp_mod.".pm";$$opt{name}->cipp_init;}\n]
+	);
+
+	if ( $$opt{name} !~ /\$/ ) {
+		$self->{used_modules}->{$$opt{name}} = 1;
+	}
+
+	return 1;
+}
+
+sub Process_Profile {
+#
+# INPUT:	1. Options
+#		2. Ende-Tag?
+#
+# OUTPUT:	1. Danach innerhalb eines PRINT-Statements?
+#
+	my $self = shift;
+	my ($opt, $end_tag) = @_;
+
+	$self->Check_Options ("!PROFILE", "", "ON OFF DEEP", $opt) || return 1;
+
+	my $deep = '';
+	if ( $opt->{on} ) {
+		if ( $opt->{deep} ) {
+			$self->{profile} = "deep";
+			$deep = " DEEP";
+		} else {
+			$self->{profile} = "on";
+		}
+	}
+	
+	if ( $opt->{off} ) {
+		$self->{profile} = undef;
+		$self->{output}->Write(
+			'printf STDERR "PROFILE %5d STOP'.$deep.'\n",$$;'
+		);
+	} else {
+		$self->{output}->Write(
+			'printf STDERR "\nPROFILE %5d START'.$deep.'\n",$$;'
+		);
+	}
+
+	return 1;
+}
+
+sub Process_Httpheader {
+#
+# INPUT:	1. Options
+#		2. Ende-Tag?
+#
+# OUTPUT:	1. Danach innerhalb eines PRINT-Statements?
+#
+	my $self = shift;
+	my ($opt, $end_tag) = @_;
+
+	if ( $end_tag ) {
+		if ( exists $self->{http_header_old_output} ) {
+			pop @{$self->{context_stack}};
+			$self->{output} = delete $self->{http_header_old_output};
+		}
+		$self->Check_Options ("/!HTTPHEADER", "", "", $opt) || return 1;
+		return 1;
+	}
+
+	$self->Check_Options ("!HTTPHEADER", "VAR", "MY", $opt) || return 1;
+
+	if ( $self->{http_header_perl_code} ) {
+		$self->ErrorLang (
+			"!HTTPHEADER",
+			'one_http_header_allowed'
+		);
+		return 0;
+	}
+
+	my $o_handle = new CIPP::OutputHandle (
+		\$self->{http_header_perl_code}
+	);
+
+	$self->{http_header_old_output} = $self->{output};
+	$self->{output} = $o_handle;
+
+	$self->{output}->Write (
+		qq[my $opt->{var} = \\\%CIPP_Exec::cipp_http_header;\n]
+	);
+
+	push @{$self->{context_stack}}, 'perl';
+
+	return 0;
+}
+
+sub Process_Comment {
+#
+# INPUT:	1. Options
+#		2. Ende-Tag?
+#
+# OUTPUT:	1. Danach innerhalb eines PRINT-Statements?
+#
+	my $self = shift;
+	my ($opt, $end_tag) = @_;
+
+	if ( $end_tag ) {
+		pop @{$self->{context_stack}};
+		$self->Check_Options ("/#", "", "", $opt) || return 1;
+		return 1;
+	}
+
+	$self->Check_Options ("#", "", "", $opt) || return 1;
+
+	push @{$self->{context_stack}}, 'comment';
+
+	return 1;
+}
+
+
 #---------------------------------------------------------------------------------
 
 sub Resolve_Object_Source {
@@ -3503,7 +3938,7 @@ sub Get_Object_Type {
 	$object_file =~ s!\.!/!g;
 	$object_file .= ".$ext";
 
-	$self->{direct_used_objects}->{"$object_file:$type"} = 1
+	$self->Set_Direct_Used_Object ($object_file, $type)
 		unless $self->{object_name} eq $object;
 
 	if ( wantarray ) {
@@ -3511,6 +3946,14 @@ sub Get_Object_Type {
 	} else {
 		return $type;
 	}
+}
+
+sub Set_Direct_Used_Object {
+	my $self = shift;
+
+	my ($object_file, $type) = @_;
+	
+	$self->{direct_used_objects}->{"$object_file:$type"} = 1;
 }
 
 sub Get_Object_URL {
@@ -3544,8 +3987,9 @@ sub Get_Object_URL {
 	my $object_path = $object;
 
 	$object_path =~ s!\.!/!g;
-	$object_path =~ s![^\/]*!$self->{project}!;	# aktuelles Projekt
-							# einsetzen
+	$object_path =~ s![^\/]*!\$CIPP_Exec::cipp_project!;
+				# aktuelles Projekt
+				# einsetzen
 	
 	my $object_url;
 
@@ -3572,6 +4016,8 @@ sub Get_Object_URL {
 		}
 
 		$object_url = "\$CIPP_Exec::cipp_doc_url/$object_path.$ext";
+	} else {
+		$object_url =  "\$CIPP_Exec::cipp_doc_url/$object_path.$object_ext";
 	}
 
 	return undef if ! defined $object_url;
@@ -3750,6 +4196,27 @@ sub Get_Rel_URL {
 		  (scalar (@to) > 0 ? '/':'').$to_file;
 
 	return $url;
+}
+
+sub get_profile_start_code {
+	my $self = shift;
+	
+	return	"require 'Time/HiRes.pm';\n".
+		'my ($_cipp_t1, $_cipp_t2);'."\n".
+		'$_cipp_t1 = Time::HiRes::time();'."\n";
+}
+
+sub get_profile_end_code {
+	my $self = shift;
+	
+	my ($what, $detail) = @_;
+
+	$what = "q[$what]";
+	$detail = "q[$detail]";
+	
+	return	'$_cipp_t2 = Time::HiRes::time();'."\n".
+		'printf STDERR "PROFILE %5d %-10s %-40s %2.4f\n", '.
+		'$$, '.$what.','.$detail.', $_cipp_t2-$_cipp_t1;'."\n";
 }
 
 1;

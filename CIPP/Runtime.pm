@@ -4,7 +4,7 @@
 #	CIPP::Runtime.pm
 #
 # REVISION
-#	$Revision: 1.5 $
+#	$Revision: 1.6 $
 #
 # DESCRIPTION
 #	Enthält Funktionen, die zur Laufzeit von CIPP-CGI Programmen
@@ -112,25 +112,37 @@
 #		  wenn Datei fehlt.
 #
 #	16.01.1999 0.3.0.0 joern
-#		+ umbenannt von CIPP_Runtime nach CIPP::Runtime
+#		- umbenannt von CIPP_Runtime nach CIPP::Runtime
 #
 #	26.02.1999 0.31 joern
-#		+ CIPP Exception Logging starb mit 'die' wenn Logfile
+#		- CIPP Exception Logging starb mit 'die' wenn Logfile
 #		  nicht geschrieben werden konnte. Nun gibt es eine
 #		  entsprechende Fehlermeldung
+#
+#	xx.xx.1999 0.32 joern
+#		- Backtrace bei Fehlermeldungen
+#		- Configs werden nie gecached, sondern immer eingelesen
+#		  (sonst mod_perl Probleme)
+#
+#	06.07.2000 0.33 joern
+#		- Backtrace wird nur ausgegeben, wenn
+#		  CIPP_Exec::cipp_error_show gesetzt ist
 #
 #==============================================================================
 
 package CIPP::Runtime;
 
-$REVISION = q$Revision: 1.5 $;
-$VERSION = "0.31";
+$REVISION = q$Revision: 1.6 $;
+$VERSION = "0.34";
 
 use FileHandle;
 use Cwd;
+use Carp;
 
 sub Read_Config {
 	my ($filename, $nocache) = @_;
+
+	$nocache = 1;
 
 	die "CONFIG\File '$filename' not found" if not -f $filename;
 	
@@ -174,6 +186,13 @@ sub Exception {
 		if ( $message =~ /compilation errors/ ) {
 			print "<P>You will find the compiler error messages in the webserver error log<P>\n";
 		}
+	}
+
+	if ( $CIPP_Exec::cipp_error_show ) {
+		eval {
+			confess "STACK-BACKTRACE";
+		};
+		print "<p><pre>$@</pre>\n";
 	}
 
 #	die "TYPE=$type MESSAGE=$message";

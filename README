@@ -4,8 +4,8 @@ NAME
 SYNOPSIS
     This module is a preprocessor for the CIPP language. To use
     it you need either CGI::CIPP, Apache::CIPP or new.spirit.
-    Please download the packages from CPAN (new.spirit is
-    available at http://spirit.dimedis.de/ ) and refer to their
+    Please download the packages from CPAN (new.spirit is also
+    available at http://www.dimedis.de/ ) and refer to their
     documentation for details.
 
     So this SYNOPSIS is empty... ;)
@@ -20,6 +20,24 @@ DESCRIPTION
     are covered by CIPP, so the developer does not need to code
     them again and again.
 
+    CIPP is useful in two ways. One aproach is to let CIPP generate
+    standalone CGI scripts, which only need a little environment to
+    run (some configuration files). If you want to use CIPP in this
+    way: there is a complete development environment called spirit
+    which supports you in many ways, to develop such CGI programms
+    with CIPP. spirit can be downloaded from CPAN, but is only free
+    for non commercial usage.
+
+    The second is to use the Apache::CIPP or CGI::CIPP modules.
+    These let you execute CIPP sources transparently inside
+    your webserver document tree. They define request handlers
+    for CIPP sources, so they will be executed in an Apache or
+    CGI environment on the fly. The Apache module needs mod_perl,
+    implements a two-level preprocessing and Perl Compiler cache
+    and provides great performance. The CGI module runs with
+    any webserver and uses the standard CGI interface for
+    communication.
+
     Development started spring 1997 at dimedis GmbH, Germany.
     It improved over the time while used in several projects.
     Since early 1999 this module is Open Source software and
@@ -33,8 +51,9 @@ SIMPLE EXAMPLE
     will be translated to a standalone CGI program.
     
     Note: there is no code to connect to the database. This is
-    done implicitely. The configuration is taken from Apache
-    or from a global configuration file.
+    done implicitely. The configuration is taken from Apache,
+    from a small CGI::CIPP wrapper program or from a global
+    configuration file.
     
       # print table of users who match the given parameter
   
@@ -120,12 +139,19 @@ BUG REPORTING
     
         cipp@dimedis.de
 
+README REVISION
+    $Id: README,v 1.6 2000/08/10 13:00:55 joern Exp $
+
+CREDITS
+    Martin H. Sluka <martin@sluka.de> for his STICKY idea
+    in some formular tags
+
 AUTHOR
     Joern Reder <joern@dimedis.de>
 
 COPYRIGHT
     Copyright (C) 1999 by Joern Reder and
-    dimedis GmbH, 50672 Koeln, Germany
+                          dimedis GmbH, 50672 Koeln, Germany
 
     All Rights Reserved.
 

@@ -1,6 +1,6 @@
 package CIPP_Exec;
-my $cipp_back_prod_path="../..";
-BEGIN{$cipp_back_prod_path="../..";}
+$cipp::back_prod_path="../..";
+BEGIN{$cipp::back_prod_path="../..";}
 use strict;
 $CIPP_Exec::apache_mod = 1;
 $CIPP_Exec::apache_program = "input.cipp";
@@ -17,8 +17,6 @@ if ( ! defined $CIPP_Exec::_cipp_in_execute ) {
 
 eval { # CIPP-GENERAL-EXCEPTION-EVAL
 package CIPP_Exec;
-print "Content-type: text/html\nPragma: no-cache\n\n" if not $CIPP_Exec::_cipp_no_http;
-$CIPP_Exec::cipp_http_header_printed = 1;
 @CIPP_Exec::cipp_dbh_list = ();
 
 $cipp_db_zyn::data_source = $cipp_apache_request->dir_config ("db_zyn_data_source");
@@ -26,7 +24,8 @@ $cipp_db_zyn::user = $cipp_apache_request->dir_config ("db_zyn_user");
 $cipp_db_zyn::password = $cipp_apache_request->dir_config ("db_zyn_password");
 $cipp_db_zyn::autocommit = $cipp_apache_request->dir_config ("db_zyn_auto_commit");
 use DBI;
-if ( not $CIPP_Exec::no_db_connect ) { $cipp_db_zyn::dbh = DBI->connect (
+if ( not $CIPP_Exec::no_db_connect ) { eval { $cipp_db_zyn::dbh->disconnect };
+$cipp_db_zyn::dbh = DBI->connect (
 $cipp_db_zyn::data_source,
 $cipp_db_zyn::user,
 $cipp_db_zyn::password,
@@ -34,7 +33,8 @@ $cipp_db_zyn::password,
   AutoCommit => $cipp_db_zyn::autocommit } );
 die "sql_open	$DBI::errstr" if $DBI::errstr;
 }
-;push @CIPP_Exec::cipp_dbh_list, $cipp_db_zyn::dbh;
+;die "sql_open	dbh is undef" if not $cipp_db_zyn::dbh;
+push @CIPP_Exec::cipp_dbh_list, $cipp_db_zyn::dbh;
 if ( $cipp_db_zyn::init ) {
 my $cipp_sql_code = qq{$cipp_db_zyn::init};
 $cipp_db_zyn::dbh->do( $cipp_sql_code );
@@ -96,10 +96,6 @@ print qq[
 </BODY>
 </HTML>
 ];
-$CIPP_Exec::cipp_http_header_printed = 0;
-}; # CIPP-GENERAL-EXCEPTION-EVAL;
-end_of_cipp_program:
-my $cipp_general_exception = $@;
 if ( not $CIPP_Exec::no_db_connect ) {
 eval { my $cipp_close_dbh;
 while ( $cipp_close_dbh = shift @CIPP_Exec::cipp_dbh_list) {
@@ -110,4 +106,8 @@ while ( $cipp_close_dbh = shift @CIPP_Exec::cipp_dbh_list) {
 }
 };
 }
+$CIPP_Exec::cipp_http_header_printed = 0;
+}; # CIPP-GENERAL-EXCEPTION-EVAL;
+end_of_cipp_program:
+my $cipp_general_exception = $@;
 die $cipp_general_exception if $cipp_general_exception;

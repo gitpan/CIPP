@@ -1,7 +1,7 @@
 package CIPP::DB_DBI;
 
-$VERSION = "0.60";
-$REVISION = q$Revision: 1.12 $;
+$VERSION = "0.62";
+$REVISION = q$Revision: 1.14 $;
 
 use strict;
 
@@ -22,7 +22,7 @@ sub new {
 	# name prefix for lexical variables
 	my $lex;
 	
-	# Projektanteil rausnehmen, sonst RIESEN MOD_PERL SCHEISS PROBLEM
+	# Projektanteil rausnehmen, sonst Probleme mit mod_perl
 	$lex =~ s/^[^\.]+\.//;
 
 	($lex = $db_name) =~ tr/./_/;
@@ -80,13 +80,16 @@ sub Open {
 	}
 	
 	$code .=
-		qq[if ( not \$CIPP_Exec::no_db_connect ) { ${pkg}::dbh = DBI->connect (\n].
+		qq[if ( not \$CIPP_Exec::no_db_connect ) { ].
+		qq[eval { ${pkg}::dbh->disconnect };\n].
+		qq[${pkg}::dbh = DBI->connect (\n].
 		qq[${pkg}::data_source,\n].
 		qq[${pkg}::user,\n].
 		qq[${pkg}::password,\n].
 		qq[{ PrintError => 0,\n].
 		qq[  AutoCommit => ${pkg}::autocommit } );\n].
-		qq[die "sql_open\t\$DBI::errstr" if \$DBI::errstr;\n}\n;];
+		qq[die "sql_open\t\$DBI::errstr" if \$DBI::errstr;\n}\n;].
+		qq[die "sql_open\t\dbh is undef" if not ${pkg}::dbh;\n];
 
 	$code .= "push \@CIPP_Exec::cipp_dbh_list, ${pkg}::dbh;\n";
 
@@ -97,6 +100,12 @@ sub Open {
 	);
 	
 	$code .= "}\n";
+
+	# Hier stand mal Code, um AutoCommit nur dann zu setzen,
+	# wenn es sich *nicht* um MySQL handelt. Das ist unsauber
+	# und entsprechend rausgeflogen. Das Problem muß von
+	# Datenbankkonfigurationsseiten (new.spirit oder *::CIPP)
+	# gelöst werden.
 
 	if ( $no_reconnect ) {
 		$code .= "}";
@@ -314,8 +323,14 @@ sub Commit {
 	my $db_name	= $self->{db_name};
 	my $pkg		= $self->{pkg};
 
-	my $code  = qq{${pkg}::dbh->commit();}."\n";
+#	my $code  = qq{${pkg}::dbh->commit();}."\n";
+#	$code .= qq{die "$throw\t\$DBI::errstr" if defined \$DBI::errstr;}."\n";
+
+	my $code = '';
+	$code .= qq[if ( ${pkg}::data_source !~ /mysql/ ) {\n];
+	$code .= qq{${pkg}::dbh->commit();}."\n";
 	$code .= qq{die "$throw\t\$DBI::errstr" if defined \$DBI::errstr;}."\n";
+	$code .= qq[}\n];
 
 	return $code;
 }
@@ -363,11 +378,16 @@ sub Autocommit {
 	my $pkg		= $self->{pkg};
 
 	my $code;
+
+	$code = qq[if ( ${pkg}::data_source !~ /mysql/ ) {\n];
+
 	if ( $status == 0 ) {
-		$code = qq{${pkg}::dbh->{AutoCommit}=0;}."\n";
+		$code .= qq{${pkg}::dbh->{AutoCommit}=0;}."\n";
 	} else {
-		$code = qq{${pkg}::dbh->{AutoCommit}=1;}."\n";
+		$code .= qq{${pkg}::dbh->{AutoCommit}=1;}."\n";
 	}
+
+	$code .= qq[}\n];
 
 	return $code;
 }

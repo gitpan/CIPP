@@ -1,9 +1,9 @@
 package CIPP::LangEN;
 
-# $Id: LangEN.pm,v 1.3 1999/11/25 20:35:27 joern Exp $
+# $Id: LangEN.pm,v 1.6 2001/01/31 11:32:42 joern Exp $
 
 $VERSION = "0.01";
-$REVISION = q$Revision: 1.3 $;
+$REVISION = q$Revision: 1.6 $;
 
 use strict;
 
@@ -30,7 +30,7 @@ package CIPP::Lang;
 	var_invalid_type	=> "invalid TYPE",
 
 	include_recursive	=> "recursive usage of %s. caller stack: %s",
-	include_not_readable	=> "object '%s' is not readable. filename: %s",
+	include_not_readable	=> "object '%s' is not readable or does not exist. filename: %s",
 	include_cipp_init	=> "internal CIPP preprocessor initialization error",
 	include_no_in_par	=> "%s takes no input parameters",
 	include_no_out_par	=> "%s defines no output parameters",
@@ -73,5 +73,12 @@ package CIPP::Lang;
 	perl_runtime		=> "perl error: %s",
 	
 	one_module_allowed	=> "multiple usage of <?MODULE> forbidden",
-	module_missing		=> "The <?MODULE> command is missing!"
+	module_missing		=> "The <?MODULE> command is missing!",
+	
+	select_nesting		=> "nesting of <?SELECT> forbidden",
+	select_missing		=> "usage of <?OPTION> without <?SELECT> forbidden",
+	
+	geturl_mangling		=> "mixing of URLVAR and VAR options is forbidden",
+
+	one_http_header_allowed	=> "multiple usage of <?!HTTPHEADER> forbidden",
 );

@@ -1,5 +1,60 @@
 Revision history for Perl extension CIPP.
 
+2.15     Tue Nov 28 2000 joern
+	- added <?INPUT TYPE="image" SRC="x.gifs.picture">
+	- fixed Bug in HTTP Header generation in case of
+	  "cipp/dynamic" mode
+
+2.14_04  Fri Oct 13 2000 joern
+	- Bugfix: a broken http header was printed when
+	          generating CIPP-HTML files with new.spirit 2.x
+
+2.14_03  Sun Aug 13 2000 joern
+	- Include cache works now Ok in Apache::CIPP
+	  environments, if same named include occur
+	  in different virtual hosts
+
+2.14_02  Tue Aug  8 2000 joern
+	INTERNAL BETA RELEASE PRE 2.15
+	- this version represents a huge merge of the two CIPP
+	  trunks 2-0-9-patches and 2.14_01.
+
+	  2-0-9 implements many mod_perl fixes for using
+	  generated CGI programs (new.spirit) under mod_perl.
+
+	  2.14_01 adds many features to the CIPP language
+	  and has some internal optimizations.
+
+	- the CIPP/DB_DBI.pm module comes mainly from the
+	  2.14_01 trunk. Only some fixes added to the 2-0-9
+	  revision in the 2-0-9-patches trunk are added
+	  manually to 2.14_01, because 2.14_01 got a major
+	  internal redesign of the method interfaces.
+
+	- added STICKY Feature to
+		<?INPUT TYPE="checkbox">
+		<?INPUT TYPE="radio">
+
+	- added new CIPP Tags
+		<?SELECT>
+		<?OPTION>
+		<?!PROFILE>	(experimental, interface may change)
+		<?!HTTPHEADER>
+		<?#>
+
+	- Thanks go to Martin H. Sluka <martin@sluka.de> for
+	  his suggestion about the STICKY feature.
+
+	- Change syntax of <?GETURL> command. See documentation
+	  CIPP::Manual for details
+	
+	- <?AUTOPRINT> is depreciated. Use <?!AUTOPRINT> instead.
+
+2.14_01  Tue Mar 29 2000 joern
+	INTERNAL BETA RELEASE
+	- disconnect before connect to prevent rollback
+	  ineffective error messages in mod_perl context
+
 2.13	 Mo  Mar  6 2000 joern
 	- new release, published to CPAN
 
@@ -36,12 +91,12 @@ Revision history for Perl extension CIPP.
 	  referencing to the corresponding CIPP lines
 	- new CIPP command <?MODULE>
 	- new CIPP command <?USE>
-	- command <?LIB> is deprecated
+	- command <?LIB> is depreciated
 	- DBI code generator has been slighlty optimized
 	- some CIPP global variables of the generated Perl programs
 	  did change. Currently there is a compatability patch active,
-	  so existant applications (e.g. new.spirit 1.x, Apache::CIPP
-	  and friends) must not change. Future releases will depend
+	  so existent applications (e.g. new.spirit 1.x, Apache::CIPP
+	  and friends) need no change. Future releases will depend
 	  on the new interfaces. Actually only new.spirit 2.x uses
 	  the new style interface.
 
