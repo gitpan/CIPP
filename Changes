@@ -1,5 +1,50 @@
 Revision history for Perl extension CIPP.
 
+2.13	 Mo  Mar  6 2000 joern
+	- new release, published to CPAN
+
+2.13_03  Fr  Nov 26 1999 joern
+	INTERNAL BETA RELEASE
+	
+	- Bugfix: debugging output in Apache/CGI Modus crashed
+
+2.13_02	 Fr  Nov 26 1999 joern
+	INTERNAL BETA RELEASE
+	
+	- many CIPP commands were dependent from the context, e.g.
+	  it was impossible to use <?GETURL> in a <?PERL> context.
+	  Now nearly all CIPP commands can be used in any context,
+	  only inside a <?VAR> command context no other CIPP commands
+	  can be used (which of course would make no sense ;)
+	- new CIPP command <?HTML> to switch from <?PERL> context
+	  into HTML context
+	- now it is possible to nest <?SQL> commands, if the underlying
+	  database engine supports multiple executed statement handles
+
+
+2.13_01  Thu Nov 25 1999 joern
+	INTERNAL BETA RELEASE
+
+	- CIPP debugging source output enhanced: a summary of
+	  errors is printed, with hyperlinks to the appropriate
+	  sections of the highlighted source code output, so
+	  you can navigate through your source code
+	- new internal method to get the top level used objects
+	  of a CIPP program (the existent methods always flatten
+	  the dependency hierarchies)
+	- new method for formatting Perl syntax error output, incl.
+	  referencing to the corresponding CIPP lines
+	- new CIPP command <?MODULE>
+	- new CIPP command <?USE>
+	- command <?LIB> is deprecated
+	- DBI code generator has been slighlty optimized
+	- some CIPP global variables of the generated Perl programs
+	  did change. Currently there is a compatability patch active,
+	  so existant applications (e.g. new.spirit 1.x, Apache::CIPP
+	  and friends) must not change. Future releases will depend
+	  on the new interfaces. Actually only new.spirit 2.x uses
+	  the new style interface.
+
 2.12  Sat Oct 09 1999 joern
 	- added a workaround for Informix databases. After connecting
 	  to the database, a "set lock mode to wait" is executed,

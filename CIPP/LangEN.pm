@@ -1,9 +1,9 @@
 package CIPP::LangEN;
 
-# $Id: LangEN.pm,v 1.1 1999/09/22 14:39:50 joern Exp $
+# $Id: LangEN.pm,v 1.3 1999/11/25 20:35:27 joern Exp $
 
 $VERSION = "0.01";
-$REVISION = q$Revision: 1.1 $;
+$REVISION = q$Revision: 1.3 $;
 
 use strict;
 
@@ -69,4 +69,9 @@ package CIPP::Lang;
 	getparam_no_type	=> "parameter '%s' is not a scalar or array",
 	
 	getparamlist_no_array	=> "varaiable '%s' is no array",
+
+	perl_runtime		=> "perl error: %s",
+	
+	one_module_allowed	=> "multiple usage of <?MODULE> forbidden",
+	module_missing		=> "The <?MODULE> command is missing!"
 );

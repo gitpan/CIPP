@@ -1,9 +1,9 @@
 package CIPP::LangDE;
 
-# $Id: LangDE.pm,v 1.1 1999/09/22 14:39:50 joern Exp $
+# $Id: LangDE.pm,v 1.3 1999/11/25 20:35:27 joern Exp $
 
 $VERSION = "0.01";
-$REVISION = q$Revision: 1.1 $;
+$REVISION = q$Revision: 1.3 $;
 
 use strict;
 
@@ -70,4 +70,8 @@ package CIPP::Lang;
 	
 	getparamlist_no_array	=> "Die Variable '%s' muß eine Arrayvariable sein",
 	
+	perl_runtime		=> "Perl Fehler: %s",
+	
+	one_module_allowed	=> "<?MODULE> darf nur einmal verwendet werden",
+	module_missing		=> "Der <?MODULE> Befehl fehlt!"
 );

@@ -1,12 +1,13 @@
 package CIPP;
 
-#$Id: CIPP.pm,v 1.21 1999/10/09 08:46:41 joern Exp $
+#$Id: CIPP.pm,v 1.31 2000/02/15 20:09:19 joern Exp $
 
-$VERSION = "2.12";
-$REVISION = q$Revision: 1.21 $; 
+$VERSION = "2.13";
+$REVISION = q$Revision: 1.31 $; 
 
 use strict;
 use Config;
+use Carp;
 use FileHandle;
 use File::Basename;
 use CIPP::InputHandle;
@@ -25,18 +26,20 @@ $CIPP::cipp_single_tags =
 	"|execute|dbquote|commit|rollback|my|savefile|config".
 	"|htmlquote|urlencode|hiddenfields|img|".
 	"|input|geturl|interface|lib|incinterface|getparam|getparamlist".
-	"|getdbhandle|autoprint|apredirect|apgetrequest|exit".
+	"|getdbhandle|autoprint|apredirect|apgetrequest|exit|use".
 # aus Kompatibilt‰tsgr¸nden
 	"|imgurl|cgiurl|docurl|cgiform|";
 
 # alle Tags, die wieder geschlossen werden muessen
 $CIPP::cipp_multi_tags  =
-	"|if|var|do|while|perl|sql|try|catch|block|foreach|form|a|textarea|sub|";
+	"|if|var|do|while|perl|sql|try|catch|block|foreach".
+	"|form|a|textarea|sub|module|html|";
 
 # Hash-Array fuer alle Tags, als Value wird der Name der behandelnden
 # Methode eingetragen
 %CIPP::tag_handler = (
 		"perl",		"Process_Perl",
+		"html",		"Process_Html",
 		"if", 		"Process_If",
 		"while", 	"Process_While",
 		"do", 		"Process_Do",
@@ -79,6 +82,8 @@ $CIPP::cipp_multi_tags  =
 		"apgetrequest",	"Process_Apgetrequest",
 		"sub",		"Process_Sub",
 		"exit",		"Process_Exit",
+		"module",	"Process_Module",
+		"use",		"Process_Use",
 # aus Kompatiblit‰tsgr¸nden
 		"imgurl",	"Process_Imgurl",
 		"cgiurl",	"Process_Cgiurl",
@@ -123,8 +128,6 @@ sub new {
 	$back_prod_path =~ s!\.!/!g;
 	$back_prod_path =~ s![^/]+!..!g;
 
-#	print STDERR "back_prod_path = $back_prod_path\n";
-
 	# Objektattribute initialisieren
 
 	my $self = {
@@ -167,7 +170,8 @@ sub new {
 			"project" => $project,
 			"use_inc_cache" => $use_inc_cache,
 			"perl_interpreter_path" => $Config{'perlpath'},
-			"lang" => $lang
+			"lang" => $lang,
+			"context_stack" => []
 	};
 
 	# Wir gehen mal davon aus, dass alles geklappt hat, pruefen
@@ -183,13 +187,6 @@ sub new {
 	     ! $t_handle->Get_Init_Status ||
 	     ! $o_handle->Get_Init_Status ) {
 		$self->{init_status} = 0;
-	} elsif ( not $apache_mod ) {
-#		my $key;
-#		foreach $key (keys %{$project_hash}) {
-#			if ( ! -d $$project_hash{$key} ) {
-#				$self->{init_status} = 0;
-#			}
-#		}
 	}
 
 	my $blessed = bless $self, $type;
@@ -198,13 +195,10 @@ sub new {
 	($me) = $me =~ /^([^:\[]+)/;
 
 	$self->{object_url} = $blessed->Get_Object_URL ($me);
-#	$self->{init_status} = 0 if ! defined $self->{object_url};
 
 	if ( $self->{init_status} && $skip_header_line ) {
 		$blessed->Skip_Header();
 	}
-
-#	print STDERR "call_path (", $self->{obj_nr}, "): $call_path\n";
 
 	return $blessed;
 }
@@ -298,6 +292,13 @@ sub Get_Used_Macros {
 	return $self->{used_macros};
 }
 
+sub Get_Direct_Used_Objects {
+	my $self = shift;
+	return undef if ! $self->{init_status};
+
+	return $self->{direct_used_objects};
+}
+
 sub Get_Used_Databases {
 	my $self = shift;
 	return undef if ! $self->{init_status};
@@ -347,6 +348,14 @@ sub Get_Include_Bare {
 	return $self->{inc_bare};
 }
 
+sub Get_Module_Name {
+	my $self = shift;
+	
+	return undef if ! $self->{init_status};
+
+	return $self->{module_name};
+}
+
 sub Add_Message {
 	my $self = shift;
 	return undef if ! $self->{init_status};
@@ -354,9 +363,6 @@ sub Add_Message {
 	my ($message, $line) = @_;
 
 	$line ||= $self->{input}->Get_Line_Number();
-
-#	print STDERR "neue Message: (", $self->{obj_nr}, ") ",
-#		$self->{call_path}, ": $line - $message\n";
 
 	push @{$self->{message}},
 		$self->{call_path}."\t".$line."\t".$message;
@@ -542,7 +548,7 @@ sub Check_Nesting {
 			$last_tag =~ tr/a-z/A-Z/;
 			$tag = "/$tag";
 			$tag =~ tr/a-z/A-Z/;
-			$self->ErrorLang ($tag, 'wrong_nesting', $tag, ["/$last_tag"]);
+			$self->ErrorLang ($tag, 'wrong_nesting', ["<?/$last_tag>", "<?$tag>"]);
 
 			return 0;
 		}
@@ -567,13 +573,25 @@ sub Check_Nesting {
 sub Generate_CGI_Code {
 	my $self = shift;
 	return if ! $self->{init_status};
+	
+	# Sonderregelung f¸r CIPP Module: die brauchen so oder so ein 'use strict'
+	# und ggf. Database_Code (egal ob $self->{write_script_header} gesetzt ist).
+
+	if ( $self->{result_type} eq 'cipp-module' ) {
+		if ( $self->{use_strict} ) {
+			$self->{target}->Write ("use strict;\n");
+		}
+		$self->Generate_Database_Code ();
+		return;
+	}
+	
 	return if ! $self->{write_script_header};
 
 	my $apache_mod = $self->{apache_mod};
 	
 	$self->{target}->Write ("#!$self->{perl_interpreter_path}\n") if not $apache_mod;
 	$self->{target}->Write ("package CIPP_Exec;\n");
-	$self->{target}->Write (qq{my \$cipp_back_prod_path;\n});
+	$self->{target}->Write (qq{my \$cipp_back_prod_path="$self->{back_prod_path}";\n});
 	$self->{target}->Write (qq[BEGIN{\$cipp_back_prod_path="$self->{back_prod_path}";}\n]);
 
 	
@@ -610,7 +628,7 @@ BEGIN {
 	unshift (\@INC, "\$cipp_back_prod_path/cgi-bin");
 	unshift (\@INC, "\$cipp_back_prod_path/lib");
 }
-require "\$cipp_back_prod_path/config/cipp.conf";
+do "\$cipp_back_prod_path/config/cipp.conf";
 ]);
 	}
 	$self->{target}->Write (
@@ -624,12 +642,7 @@ if ( ! defined \$CIPP_Exec::_cipp_in_execute ) {
 	$package_import
 }
 ]);
-#	if ( not $apache_mod ) {
-#		$self->{target}->Write (
-#qq[	
-#eval { # CIPP-GENERAL-EXCEPTION-EVAL
-#]);
-#	}
+
 	$self->{target}->Write (
 qq[
 eval { # CIPP-GENERAL-EXCEPTION-EVAL
@@ -644,16 +657,14 @@ package CIPP_Exec;
 		$self->{target}->Write (
 			q{$CIPP_Exec::cipp_http_header_printed = 1;}."\n");
 	}
-#	print STDERR "mime_type=$self->{mime_type}\n";
 	
-		if ( $self->{mime_type} eq 'text/html' and not $apache_mod 
-		     and not $self->{autoprint_off} ) {
-			$self->{target}->Write ( 
-				"print \"<!-- generated with CIPP ".
-				$self->{version}."/$CIPP::REVISION, ".
-				"(c) 1997-1999 dimedis GmbH -->\\n\";\n");
-		}
-#	}
+	if ( $self->{mime_type} eq 'text/html' and not $apache_mod 
+	     and not $self->{autoprint_off} ) {
+		$self->{target}->Write ( 
+			"print \"<!-- generated with CIPP ".
+			$self->{version}."/$CIPP::REVISION, ".
+			"(c) 1997-1999 dimedis GmbH -->\\n\";\n");
+	}
 	
 	# explizites Importieren von CGI Parameter, wenn $cgi_input
 	# angegeben wurde, sonst Importieren in den Namespace ¸ber
@@ -697,19 +708,17 @@ package CIPP_Exec;
 	);
 
 	# Datenbankcode generieren
-
+	
 	$self->Generate_Database_Code ();
 
 	if ( not $apache_mod ) {
 		$self->{output}->Write (
-#			"}; # CIPP-GENERAL-EXCEPTION-EVAL\n".
 			"die \$cipp_general_exception if \$cipp_general_exception ".
 			"and \$CIPP_Exec::_cipp_in_execute;\n".
 			"CIPP::Runtime::Exception(\$cipp_general_exception) if \$cipp_general_exception;\n"
 		);
 	} else {
 		$self->{output}->Write (
-#			"}; # CIPP-GENERAL-EXCEPTION-EVAL\n".
 			"die \$cipp_general_exception if \$cipp_general_exception;\n"
 		);
 	}
@@ -718,29 +727,31 @@ package CIPP_Exec;
 sub Generate_Database_Code {
 	my $self = shift;
 	return if ! $self->{init_status};
-	return if ! $self->{write_script_header};
 	return if ! defined $self->{used_databases};
+	
+	my $code = '';
+	if ( not $self->{result_type} eq 'cipp-module' ) {
+		return if ! $self->{write_script_header};
+		$self->{target}->Write ( qq[\@CIPP_Exec::cipp_dbh_list = ();\n] );
+	} else {
+		$code .= qq[sub cipp_init {\n];
+	}
 
 	my $apache_mod = $self->{apache_mod};
 	
 	my $db;
-
 	foreach $db (keys %{$self->{used_databases}}) {
-		next if $db eq "$self->{project}.__DEFAULT__";
 		
 		if ( $apache_mod ) {
 			# Parameter aus Apache-Config holen
-			$self->{target}->Write (
-qq{
+			$code .= qq{
 \$cipp_db_${db}::data_source = \$cipp_apache_request->dir_config ("db_${db}_data_source");
 \$cipp_db_${db}::user = \$cipp_apache_request->dir_config ("db_${db}_user");
 \$cipp_db_${db}::password = \$cipp_apache_request->dir_config ("db_${db}_password");
-\$cipp_db_${db}::Auto_Commit = \$cipp_apache_request->dir_config ("db_${db}_auto_commit");
-}
-);
+\$cipp_db_${db}::autocommit = \$cipp_apache_request->dir_config ("db_${db}_auto_commit");
+};
+
 		}
-		
-#		print STDERR "db=$db\n";
 		
 		my $driver = $self->{db_driver}{$db};
 		$driver =~ s/CIPP_/CIPP::/;
@@ -748,10 +759,35 @@ qq{
 		return if not $driver;
 		
 		my $dbph = $driver->new(
-			$db
+			db_name => $db
 		);
-		$self->{target}->Write ( $dbph->Open ( no_config_require => $apache_mod ));
-		$self->{output}->Write ( $dbph->Close );
+		
+		$code .= $dbph->Open (
+				no_config_require => $apache_mod,
+				no_reconnect =>
+					$self->{result_type} eq 'cipp-module'
+		);
+	}
+
+	if ( $self->{result_type} eq 'cipp-module' ) {
+		$code .= "\n}\n1;\n";
+		$self->{output}->Write ( $code );
+	} else {
+		# schlieﬂen der Datenbankconnections
+		$self->{target}->Write ( $code );
+
+		$code = qq[if ( not \$CIPP_Exec::no_db_connect ) {\n].
+			qq[eval { my \$cipp_close_dbh;\n].
+			qq[while ( \$cipp_close_dbh = shift \@CIPP_Exec::cipp_dbh_list) {\n].
+			qq[  if ( not \$cipp_close_dbh->{AutoCommit} ) {\n].
+		   	qq[    \$cipp_close_dbh->rollback;\n].
+		   	qq[  }\n].
+		   	qq[  \$cipp_close_dbh->disconnect();\n].
+		   	qq[}\n].
+		   	qq[};\n].
+			qq[}\n];
+		
+		$self->{output}->Write ( $code );
 	}
 }
 
@@ -765,6 +801,13 @@ sub Preprocess {
 	$self->{nest_tag_line}[50] = 0;	# In welcher Zeile stand entsprechendes
 					# CIPP-Tag
 	$self->{nest_index} = -1;	# Aktueller Index in den beiden Arrays
+
+	# Context-Stack initialisieren
+	$self->{context_stack} = [ 'html' ];	# html = HTML Context
+						# perl = <?PERL> Context
+						# var  = <?VAR> Context
+	# SQL Driver Stack initialisieren
+	$self->{sql_driver_stack} = [];
 
 	my $magic = $self->{magic};
 	my $magic_reg = quotemeta $self->{magic};
@@ -795,14 +838,10 @@ sub Preprocess {
 
 		$found = ( $chunk =~ /$magic_reg$/ );
 
-#		print STDERR "chunk='$chunk'\n";
-#		print STDERR "found=$found\n";
-
 		if ( $found ) {
 			# CIPP-Tag gefunden, Bereich davor verarbeiten
 			$chunk =~ s/$magic_reg$//;	# Magic entfernen
 			$chunk =~ s/\r//g;
-#			$chunk =~ s/\n+/\n/g;
 
 			# gelesenen Block ausgeben
 
@@ -840,8 +879,6 @@ sub Preprocess {
 
 			($options = $chunk) =~ s/^\s*[^\s]+\s*//;
 
-#			print "TAG=$tag OPTIONS='$options'\n";
-			
 			# Ermitteln des Tag-Handlers via definiertem Hash-Array
 			my $tag_method = $CIPP::tag_handler{$tag};
 
@@ -877,7 +914,7 @@ sub Preprocess {
 				$big_tag =~ tr/a-z/A-Z/;
 				if ( $self->{debugging} && !$end_tag) {
 					$self->{output}->Write (
-						"# cippline $to_line ".'"'.
+						"\n\n# cippline $to_line ".'"'.
 						$self->{call_path}.':&lt;?'.
 						$big_tag.'>"'."\n" );
 				}
@@ -897,9 +934,6 @@ sub Preprocess {
 			last PREPROCESS;
 		}
 		
-#		print STDERR "call_path=$self->{call_path}, ".
-#			     "tag=".(($end_tag)?"/":"").
-#			     "$tag, nest_index=$self->{nest_index}\n\n";
 	}
 
 	# Abschliessend pruefen, ob der Schachtelungsstack aufgeraeumt ist,
@@ -917,12 +951,9 @@ sub Preprocess {
 		}
 	} else {
 		# Code fuer Header / Footer und Datenbank generieren
-
 		$self->Generate_CGI_Code();
-#		$self->Generate_Database_Code ();
 
 		# generierten Perl-Code in die Zieldatei schreiben
-
 		$self->{target}->Write (${$self->{perl_code}});
 	}
 
@@ -933,7 +964,14 @@ sub Preprocess {
 	
 	$self->{mime_type} = 'cipp/dynamic' if $self->{autoprint_off};
 
-#	print STDERR "Preprocess (", $self->{obj_nr}, ") END\n";
+	# wie schaut's mit dem <?MODULE> Befehl aus?
+	if ( $self->{result_type} eq 'cipp-module' and
+	     not $self->Get_Module_Name ) {
+		$self->ErrorLang (
+			"MODULE",
+			'module_missing'
+		);
+	}
 }
 
 
@@ -957,10 +995,14 @@ sub Chunk_Out {
 
 	if ( $$chunk_ref ne '' && $$chunk_ref =~ /[^\r\n\s]/ ) {
 		# Chunk ist nicht leer
-		if ( 1 == $in_print_statement && $gen_print ) {
+		my $context = $self->{context_stack}->
+					[@{$self->{context_stack}}-1];
+		if ( $context eq 'html' && $gen_print ) {
+			# HTML-Context: es wird ein print qq[] Befehl
+			# generiert
 			# ggf. Debugging-Code erzeugen
 			$output->Write (
-				"# cippline $from_line ".'"'.
+				"\n\n\n\n# cippline $from_line ".'"'.
 				 $self->{call_path}.'"'."\n" );
 
 			# Chunk muss via print ausgegeben werden
@@ -969,13 +1011,17 @@ sub Chunk_Out {
 			$$chunk_ref =~ s/\]/\\\]/g;
 			$output->Write ($$chunk_ref);
 			$output->Write ("];\n");
-		} elsif ( 0 == $in_print_statement ) {
+		} elsif ( $context eq 'perl' ) {
+			# <?PERL>Context
 			# Chunk wird unveraendert uebernommen
 			$output->Write ($$chunk_ref);
-		} elsif ( -1 == $in_print_statement ) {
+		} elsif ( $context eq 'var' ) {
+			# <?VAR> Context
 			# Chunk wird mit escapten } uebernommen
 			$$chunk_ref =~ s/\}/\\\}/g;
 			$output->Write ($$chunk_ref);
+		} else {
+			die "Unknown context '$context'";
 		}
 	}
 }
@@ -988,7 +1034,31 @@ sub Format_Debugging_Source {
 	my $ar = $self->Get_Messages;
 	my $line;
 
-	# Erstmal alle betroffenen Objekte extrahieren und dabei die Fehlermeldungen
+	# Erstmal eine Liste der Fehler erzeugen, sp‰ter kommt dann
+	# der Quellcode mit highlighting
+	
+	my $nr = 0;
+	$html .= "<pre>\n";
+	my %anchor;
+	foreach my $err (@{$ar}) {
+		my ($path, $line, $msg) = split ("\t", $err, 3);
+		$path =~ /([^:]+)$/;
+		my $name = $1;
+		$path =~ s/:$name//;
+		
+		if ( not defined $anchor{"${name}_$line"} ) {
+			$html .= qq{<a name="cipperrortop_${name}_$line"></a>};
+			$anchor{"${name}_$line"} = 1;
+		}
+
+		$html .= qq{<a href="#cipperror_${name}_$line">};
+		$html .= "$err";
+		$html .= "</a>\n";
+		++$nr;
+	}
+	$html .= "</pre>\n";
+
+	# Nun alle betroffenen Objekte extrahieren und dabei die Fehlermeldungen
 	# in ein Hash umschichten
 	my %object;
 	my %error;
@@ -1001,7 +1071,12 @@ sub Format_Debugging_Source {
 		my $name = $1;
 		$path =~ s/:$name//;
 		if ( not defined $object{$name} ) {
-			$object{$name} = $self->Resolve_Object_Source ($name);
+			my $object_type;
+			if ( not $self->{apache_mod} ) {
+				$object_type = $self->Get_Object_Type ($name);
+			}
+			$object{$name} =
+				$self->Resolve_Object_Source ($name, $object_type);
 			if ( $name ne $self->{object_name} ) {
 				push @object, $name;
 			} else {
@@ -1038,8 +1113,10 @@ sub Format_Debugging_Source {
 	}
 	
 	# nun haben wir ein Hash von Listen mit den Quelltextzeilen
+	$nr = 0;
 	foreach $object (@object) {
-		$html .= "<P><HR><H1>$object</H1><P><PRE>\n";
+		$html .= qq{<a name="object_$object"></a>};
+		$html .= "<P><HR><FONT FACE=Helvetica><H1>$object</H1></FONT><P><PRE>\n";
 		my ($i, $line);
 		$i = 0;
 		foreach $line (@{$object_source{$object}}) {
@@ -1056,7 +1133,17 @@ sub Format_Debugging_Source {
 					$html_msg .= "\t$msg\n";
 				}
 				$html_msg .= "</FONT></B>\n";
-				$html .= "\n<B><FONT COLOR=$color>$i\t$line</FONT></B>\n";
+				$html .= "\n";
+				if ( $color eq 'red' ) {
+					# error highlighting
+					$html .= qq{<a name="cipperror_${object}_$i"></a>};
+					$html .= qq{<B><a href="#cipperrortop_${object}_$i">}.
+						 qq{<FONT COLOR=$color>$i\t}.
+						 qq{$line</FONT></a></B>\n};
+				} else {
+					# include reference highlighting
+					$html .= "<B><FONT COLOR=$color>$i\t$line</FONT></B>\n";
+				}
 				$html .= $html_msg;
 			} else {
 				$html .= "$i\t$line";
@@ -1068,6 +1155,48 @@ sub Format_Debugging_Source {
 	$html .= "<HR>\n";
 	
 	return \$html;
+}
+
+sub Format_Perl_Errors {
+	my $self = shift;
+
+	my ($code_sref, $error_sref) = @_;
+
+	my @errors = split (/\n/, $$error_sref);
+	my @code = split (/\n/, $$code_sref);
+
+	foreach my $error (@errors) {
+		my ($line) = $error =~ m!\(eval\s+\d+\)\s+line\s+(\d+)!;
+		next if not $line;
+	
+		my $i = $line+1;
+
+		my $cipp_line = -1;
+		my $cipp_call_path = "";
+
+		$error =~ s/at\s+\(eval\s+\d+\)\s+/at /;
+		$error =~ s/\,.*?chunk\s+\d+//;
+		while ( $i > 0 ) {
+			if ( $code[$i] =~ /^# cippline\s+(\d+)\s+"([^"]+)/ ) {
+				$cipp_line = $1;
+				$cipp_call_path = $2;
+				$cipp_call_path =~ s/&lt;/</g;
+				if ( $cipp_call_path =~ s/:(<.*)// ) {
+					$error = "$1: $error";
+				} else {
+					$error = "HTML Block: $error";
+				}
+				last;
+			}
+			--$i;
+		}
+
+		push @{$self->{message}},
+			$cipp_call_path."\t".$cipp_line."\t".$error;
+
+	}
+	
+	return $self->Format_Debugging_Source;
 }
 
 
@@ -1084,6 +1213,9 @@ sub Process_Perl {
 	my ($opt, $end_tag) = @_;
 
 	if ( $end_tag ) {
+		# Kontext vom Stack poppen
+		pop @{$self->{context_stack}};
+		
 		$self->Check_Options ("/PERL", "", "", $opt) || return 1;
 		$self->{output}->Write ("}\n");
 		return 1;
@@ -1094,6 +1226,33 @@ sub Process_Perl {
 	$self->{output}->Write ("if ($$opt{cond}) ") if defined $$opt{cond};
 	$self->{output}->Write ("{;");	# sonst gibt <?PERL><?/PERL> ohne
 					# Inhalt einen Syntaxfehler
+
+	push @{$self->{context_stack}}, 'perl';
+
+	return 0;
+}
+
+sub Process_Html {
+#
+# INPUT:	1. Options
+#		2. Ende-Tag?
+#
+# OUTPUT:	1. Danach innerhalb eines PRINT-Statements?
+#
+	my $self = shift;
+	my ($opt, $end_tag) = @_;
+
+	if ( $end_tag ) {
+		# Kontext vom Stack poppen
+		pop @{$self->{context_stack}};
+		
+		$self->Check_Options ("/HTML", "", "", $opt) || return 1;
+		return 1;
+	}
+
+	$self->Check_Options ("HTML", "", "", $opt) || return 0;
+
+	push @{$self->{context_stack}}, 'html';
 
 	return 0;
 }
@@ -1175,6 +1334,9 @@ sub Process_Var {
 	my ($opt, $end_tag) = @_;
 
 	if ( $end_tag ) {
+		# Kontext vom Stack poppen
+		pop @{$self->{context_stack}};
+
 		$self->Check_Options ("/VAR", "", "", $opt) || return 1;
 		my $quote_char = $self->{var_quote} ? '}' : '';
 		$self->{output}->Write($quote_char);
@@ -1227,14 +1389,13 @@ sub Process_Var {
         if ( defined ($$opt{default}) ) {
 		$self->{var_default} = $$opt{default};
 	}
-#		$self->{output}->Write("$$opt{name}=");
-#		$self->{output}->Write(
-#			"$$opt{name} eq '' ?".
-#			$quote_char."$$opt{default}".
-#			$quote_end_char.":".$quote_char);
-#        } else {
-		$self->{output}->Write("$$opt{name}=".$quote_char);
-#        }
+	$self->{output}->Write("$$opt{name}=".$quote_char);
+
+	if ( $self->{var_quote} == -1 ) {
+		push @{$self->{context_stack}}, 'var';
+	} else {
+		push @{$self->{context_stack}}, 'perl';
+	}
 
 	return $self->{var_quote} ? -1 : 0;
 }
@@ -1349,6 +1510,7 @@ sub Process_Include {
 		}
 	}
 
+
 	# Ist die ‹bergabe von Parametern verboten, es wurden aber
 	# doch welche angegeben?
 	
@@ -1396,15 +1558,6 @@ sub Process_Include {
 		push @unknown_params, $i;
 	}
 
-#	if ( defined $param_opt or defined $param_must ) {
-#		my $i;
-#		foreach $i ( keys %{$opt} ) {
-#			next if defined $param_opt->{$i};
-#			next if defined $param_must->{$i};
-#			push @unknown_params, $i;
-#		}
-#	}
-	
 	# Wurden unbekannte Ausgabeparameter angegeben
 	
 	if ( defined $param_output ) {
@@ -1415,7 +1568,6 @@ sub Process_Include {
 			}
 		}
 	}
-
 
 	# Code f¸r die ¸bergebenen Parameter generieren
 
@@ -1466,19 +1618,15 @@ sub Process_Include {
 	
 	my ($code_out_before, $code_out_after) = ('', '');
 	
-#	print STDERR "name=$name, param_output=$param_output\n";
-
 	my (@wrong_types, @equal_names);
 		
 	if ( defined $param_output ) {
 		my ($name, $var);
 		my @declare;
 		while ( ($name, $var) = each %{$var_output} ) {
-#			print STDERR "var=$var, name=$name\n";
 			if ( defined $param_output->{$name} ) {
 				push @declare, $var;
 				$code_if .= "my ".$param_output->{$name}.";\n";
-#				print STDERR "name=$name\n";
 				if ( $var eq $param_output->{$name} ) {
 					push @equal_names, $var;
 				}
@@ -1636,20 +1784,25 @@ sub Process_Sql {
 	my ($opt, $end_tag, $in_print_statement) = @_;
 
 	if ( $end_tag ) {
-		# wenn {driver_used} nicht existiert, war vorher ein Syntax-
-		# fehler aufgetreten, dann braucht auch kein Ende-Code erzeugt
-		# zu werden
-		if ( defined $self->{driver_used} ) {
-			$self->{output}->Write ($self->{driver_used}->End_SQL());
+		# wenn undef auf dem Stack liegt, war ein Syntaxfehler
+		# fehler aufgetreten, dann braucht/kann auch kein Ende-Code
+		# erzeugt werden
+		my $dr = pop @{$self->{sql_driver_stack}};
+		if ( defined $dr ) {
+			$self->{output}->Write ($dr->End_SQL());
 		}
-		$self->{driver_used} = undef;
 		return $in_print_statement;
 	}
 
-	if ( defined $self->{driver_used} ) {
-		$self->ErrorLang ("SQL", 'sql_nest');
-		return 1;
-	}
+#	if ( defined $self->{driver_used} ) {
+#		$self->ErrorLang ("SQL", 'sql_nest');
+#		return 1;
+#	}
+
+	# erstmal auf dem Stack vermerken, evtl. treten noch
+	# Fehler auf, der Stack muﬂ das SQL Statement aber schon
+	# enthalten, sonst gibt's Probleme mit <?/SQL>
+	push @{$self->{sql_driver_stack}}, undef;
 
 	$self->Check_Options (
 		"SQL", "", 
@@ -1666,24 +1819,8 @@ sub Process_Sql {
 		return 1;
 	}
 
-	my $db = $$opt{db} || $self->{default_db};
-	$self->{used_databases}{$db} = 1 if defined $db;
-	$self->{used_databases}{$self->{project}.".__DEFAULT__"} = 1 if ! defined $$opt{db};
-
-	if ( ! defined $db ) {
-		$self->ErrorLang ("SQL", 'sql_no_default_db');
-		return 1;
-	}
-
-	my $driver = $self->{db_driver}{$db};
-#	print STDERR "driver='$driver'\n";
-	$driver =~ s/CIPP_/CIPP::/;
-#	print STDERR "driver='$driver'\n";
-
-	if ( $driver eq '' ) {
-		$self->ErrorLang ("SQL", 'sql_unknown_database', [$db]);
-		return 1;
-	}
+	my ($db, $driver) = $self->resolve_db ('SQL', $$opt{db});
+	return 1 unless $driver;
 
 	my @var;
 	if ( defined $$opt{var} ) {
@@ -1697,24 +1834,82 @@ sub Process_Sql {
 	my @input;
 	if ( defined $$opt{params} ) {
 		@input = split (/\s*,\s*/, $$opt{params});
-#		my $v;
-#		foreach $v (@input) {
-#			$v = "\$$v" if $v !~ /^[\$\@]/;
-#		}
 	}
 	
 	$$opt{throw} ||= "sql";
-#	print STDERR "driver='$driver'\n";
-	$self->{driver_used} = $driver->new($db);
+	
+	my $dr = $driver->new( db_name => $db );
+
+	pop @{$self->{sql_driver_stack}};
+	push @{$self->{sql_driver_stack}}, $dr;
 
 	$self->{output}->Write (
-		$self->{driver_used}->Begin_SQL
-			($$opt{sql}, $$opt{result}, $$opt{throw},
-			 $$opt{maxrows}, $$opt{winstart}, $$opt{winsize},
-			 $$opt{'my'}, \@input, @var)
+		$dr->Begin_SQL (
+			sql => $$opt{sql},
+			result => $$opt{result},
+			throw => $$opt{throw},
+			maxrows => $$opt{maxrows},
+			winstart => $$opt{winstart},
+			winsize => $$opt{winsize},
+			gen_my => $$opt{'my'},
+			input_lref => \@input,
+			var_lref => \@var
+		)
 	);
 
 	return $in_print_statement;
+}
+
+sub store_used_object {
+	my $self = shift;
+	
+	my ($object_file, $ext) = @_;
+
+	if ( $object_file eq 'default' and $ext eq 'cipp-db' ) {
+		$object_file = "__default";
+	}
+
+	$object_file =~ s/^[^\.]+\.//;
+	$object_file =~ s!\.!/!g;
+	$object_file .= ".$ext";
+
+	$self->{direct_used_objects}->{"$object_file:$ext"} = 1;
+}
+
+sub resolve_db {
+	my $self = shift;
+	
+	my ($command, $db) = @_;
+
+	if ( $CFG::VERSION ) {
+		# with new.spirit 2.x the naming of the default
+		# database has changed: it is always called 'default'
+		# regardless, which database was given to CIPP
+		# as the default database. This way no recompilation
+		# of CIPP programs is needed, if the default database
+		# has changed.
+		$db ||= 'default';
+	} else {
+		$db ||= $self->{default_db};
+	}
+
+	$self->{used_databases}->{$db} = 1;
+	$self->store_used_object ($db, "cipp-db");
+
+	if ( $db eq 'default' and not $self->{default_db} ) {
+		$self->ErrorLang ($command, 'sql_no_default_db');
+		return;
+	}
+
+	my $driver = $self->{db_driver}->{$db};
+	$driver =~ s/CIPP_/CIPP::/;
+	
+	if ( $driver eq '' ) {
+		$self->ErrorLang ($command, 'sql_unknown_database', [$db]);
+		return;
+	}
+
+	return ($db, $driver);
 }
 
 sub Process_Commit {
@@ -1723,28 +1918,18 @@ sub Process_Commit {
 
 	$self->Check_Options ("COMMIT", "", "DB THROW", $opt) || return 1;
 
-	my $db = $$opt{db} || $self->{default_db};
-	$self->{used_databases}{$db} = 1 if defined $db;
-	$self->{used_databases}{$self->{project}.".__DEFAULT__"} = 1 if ! defined $$opt{db};
+	my ($db, $driver) = $self->resolve_db ('COMMIT', $$opt{db});
+	return 1 unless $driver;
 
-	if ( ! defined $db ) {
-		$self->ErrorLang ("COMMIT", 'sql_no_default_db');
-		return 1;
-	}
-
-	my $driver = $self->{db_driver}{$db};
-	$driver =~ s/CIPP_/CIPP::/;
-	
-	if ( $driver eq '' ) {
-		$self->ErrorLang ("COMMIT", 'sql_unknown_database', [$db]);
-		return 1;
-	}
-
-	my $dr = $driver->new($db);
+	my $dr = $driver->new( db_name => $db );
 
 	$$opt{throw} ||= "commit";
 
-	$self->{output}->Write ($dr->Commit($$opt{throw}));
+	$self->{output}->Write (
+		$dr->Commit(
+			throw => $$opt{throw}
+		)
+	);
 
 	return 1;
 }
@@ -1755,28 +1940,18 @@ sub Process_Rollback {
 
 	$self->Check_Options ("ROLLBACK", "", "DB THROW", $opt) || return 1;
 
-	my $db = $$opt{db} || $self->{default_db};
-	$self->{used_databases}{$db} = 1 if defined $db;
-	$self->{used_databases}{$self->{project}.".__DEFAULT__"} = 1 if ! defined $$opt{db};
+	my ($db, $driver) = $self->resolve_db ('ROLLBACK', $$opt{db});
+	return 1 unless $driver;
 
-	if ( ! defined $db ) {
-		$self->ErrorLang ("ROLLBACK", 'sql_no_default_db');
-		return 1;
-	}
-
-	my $driver = $self->{db_driver}{$db};
-	$driver =~ s/CIPP_/CIPP::/;
-
-	if ( $driver eq '' ) {
-		$self->ErrorLang ("ROLLBACK", 'sql_unknown_database', [$db]);
-		return 1;
-	}
-
-	my $dr = $driver->new($db);
+	my $dr = $driver->new( db_name => $db );
 
 	$$opt{throw} ||= "rollback";
 
-	$self->{output}->Write ($dr->Rollback($$opt{throw}));
+	$self->{output}->Write (
+		$dr->Rollback(
+			throw => $$opt{throw}
+		)
+	);
 
 	return 1;
 }
@@ -1788,22 +1963,8 @@ sub Process_Autocommit {
 	$self->Check_Options ("AUTOCOMMIT", "", "ON OFF DB THROW", $opt)
 		 || return 1;
 
-	my $db = $$opt{db} || $self->{default_db};
-	$self->{used_databases}{$db} = 1 if defined $db;
-	$self->{used_databases}{$self->{project}.".__DEFAULT__"} = 1 if ! defined $$opt{db};
-
-	if ( ! defined $db ) {
-		$self->ErrorLang ("AUTOCOMMIT", 'sql_no_default_db');
-		return 1;
-	}
-
-	my $driver = $self->{db_driver}{$db};
-	$driver =~ s/CIPP_/CIPP::/;
-
-	if ( $driver eq '' ) {
-		$self->ErrorLang ("AUTOCOMMIT", 'sql_unknown_database', [$db]);
-		return 1;
-	}
+	my ($db, $driver) = $self->resolve_db ('AUTOCOMMIT', $$opt{db});
+	return 1 unless $driver;
 
 	if ( !defined $$opt{on} && !defined $$opt{off} ) {
 		$self->ErrorLang ("AUTOCOMMIT", 'autocommit_on_off');
@@ -1813,11 +1974,16 @@ sub Process_Autocommit {
 	my $status = 1;
 	$status = 0 if defined $$opt{off};
 
-	my $dr = $driver->new($db);
+	my $dr = $driver->new( db_name => $db );
 
 	$$opt{throw} ||= "autocommit";
 
-	$self->{output}->Write ($dr->Autocommit($status, $$opt{throw}));
+	$self->{output}->Write (
+		$dr->Autocommit(
+			status => $status,
+			throw => $$opt{throw}
+		)
+	);
 
 	return 1;
 }
@@ -1829,28 +1995,19 @@ sub Process_Getdbhandle {
 	$self->Check_Options ("GETDBHANDLE", "VAR", "MY", $opt)
 		 || return 1;
 
-	my $db = $$opt{db} || $self->{default_db};
-	$self->{used_databases}{$db} = 1 if defined $db;
-	$self->{used_databases}{$self->{project}.".__DEFAULT__"} = 1 if ! defined $$opt{db};
-
-	if ( ! defined $db ) {
-		$self->ErrorLang ("GETDBHANDLE", 'sql_no_default_db');
-		return 1;
-	}
-
-	my $driver = $self->{db_driver}{$db};
-	$driver =~ s/CIPP_/CIPP::/;
-
-	if ( $driver eq '' ) {
-		$self->ErrorLang ("GETDBHANDLE", 'sql_unknown_database', [$db]);
-		return 1;
-	}
+	my ($db, $driver) = $self->resolve_db ('GETDBHANDLE', $$opt{db});
+	return 1 unless $driver;
 
 	$$opt{var} = '$'.$$opt{var} if $$opt{var} !~ /^\$/;
 
-	my $dr = $driver->new($db);
+	my $dr = $driver->new( db_name => $db );
 
-	$self->{output}->Write ($dr->Get_DB_Handle($$opt{var}, $$opt{'my'}));
+	$self->{output}->Write (
+		$dr->Get_DB_Handle(
+			var => $$opt{var},
+			gen_my => $$opt{'my'}
+		)
+	);
 
 	return 1;
 }
@@ -1948,26 +2105,17 @@ sub Process_Dbquote {
                 ( $$opt{dbvar} = $$opt{var} ) =~ s/^\$(.*)$/\$db_$1/;
         }
 
-	my $db = $$opt{db} || $self->{default_db};
-	$self->{used_databases}{$db} = 1 if defined $db;
-	$self->{used_databases}{$self->{project}.".__DEFAULT__"} = 1 if ! defined $$opt{db};
+	my ($db, $driver) = $self->resolve_db ('DBQUOTE', $$opt{db});
+	return 1 unless $driver;
 
-	if ( $db eq '' ) {
-		$self->ErrorLang("AUTOCOMMIT", 'sql_no_default_db');
-		return 1;
-	}
-
-	my $driver = $self->{db_driver}{$db};
-	if ( $driver eq '' ) {
-		$self->ErrorLang ("AUTOCOMMIT", 'sql_unknown_database', [$db]);
-		return 1;
-	}
-	$driver =~ s/CIPP_/CIPP::/;
-
-	my $dh = $driver->new ($db);
+	my $dh = $driver->new ( db_name => $db );
 
 	$self->{output}->Write (
-		$dh->Quote_Var ($$opt{var}, $$opt{dbvar}, $$opt{'my'})
+		$dh->Quote_Var (
+			var => $$opt{var},
+			db_var => $$opt{dbvar},
+			gen_my => $$opt{'my'}
+		)
 	);
 
 	return 1;
@@ -2237,7 +2385,6 @@ sub Process_Config {
 			return 1;
 		}
 		$self->{used_configs}->{$name} = 1;
-#		print STDERR "set used_config for '$name'\n";
 	}
 
 	my $throw = $$opt{throw};
@@ -2246,6 +2393,10 @@ sub Process_Config {
 	my $require;
 
 	if ( not $apache_mod ) {
+		# Projektname muﬂ raus, sonst Probleme mit mod_perl, wenn Configs
+		# aus Subroutines heraus eingebunden werden
+		$name =~ s/^[^\.]+\.//;
+
 		$self->{output}->Write (qq{
 		CIPP::Runtime::Read_Config("\$cipp_back_prod_path/config/$name.config", "$$opt{nocache}");
 		});
@@ -2558,8 +2709,8 @@ sub Process_Img {
 			$self->ErrorLang ("IMG", 'object_not_found', [$name]);
 			return 1;
 		}
-
-		if ( $self->Get_Object_Type ($name) ne 'cipp-img' ) {
+		my $type = $self->Get_Object_Type ($name);
+		if ( $type ne 'cipp-img' ) {
 			$self->ErrorLang ("IMG", 'img_no_image', [$name]);
 			return 1;
 		}
@@ -2567,7 +2718,6 @@ sub Process_Img {
 	} else {
 		$object_url = $name;
 	}
-
 
 	my $code = qq{print qq[<IMG SRC="$object_url"};
 
@@ -2623,7 +2773,7 @@ sub Process_A {
 	my $object_url = $self->Get_Object_URL ($name);
 
 	if ( ! defined $object_url ) {
-		$self->ErrorLang ("FORM", 'object_has_no_url', [$name]);
+		$self->ErrorLang ("A", 'object_has_no_url', [$name]);
 		return 1;
 	}
 
@@ -2661,6 +2811,7 @@ sub Process_Textarea {
 	my ($opt, $end_tag) = @_;
 
 	if ( $end_tag ) {
+		pop @{$self->{context_stack}};
 		$self->Check_Options ("/TEXTAREA", "", "", $opt) || return 1;
 		$self->{output}->Write (q[}); print "</TEXTAREA>";]."\n");
 		return 1;
@@ -2676,6 +2827,8 @@ sub Process_Textarea {
 	$self->{output}->Write (
 		qq[print qq{<TEXTAREA$options>},CIPP::Runtime::HTML_Quote (qq{]
 	);
+
+	push @{$self->{context_stack}}, 'var';
 	
 	return -1;
 }
@@ -2704,7 +2857,7 @@ sub Process_Sub {
 		qq[sub $$opt{name} {\n]
 	);
 	
-	return -1;
+	return 1;
 }
 
 
@@ -2986,9 +3139,7 @@ sub Process_Incinterface {
 			$var_name =~ s/^[\$\@\%]//;
 			if ( defined $self->{inc_input}->{$var_name} or
 			     defined $self->{inc_optional}->{$var_name} ) {
-#			     or defined $self->{inc_output}->{$var_name} ) {
 				$self->{inc_bare}->{$var_name} = 1;
-#				print STDERR "inc_bare: $var_name\n";
 			} else {
 				push @unknown, $var;
 			}
@@ -3179,6 +3330,63 @@ sub Process_Exit {
 	return 1;
 }
 
+sub Process_Module {
+#
+# INPUT:	1. Options
+#		2. Ende-Tag?
+#
+# OUTPUT:	1. Danach innerhalb eines PRINT-Statements?
+#
+	my $self = shift;
+	my ($opt, $end_tag) = @_;
+
+	if ( $end_tag ) {
+		$self->Check_Options ("/MODULE", "", "", $opt) || return 1;
+		$self->{output}->Write("1;\n");
+		return 1;
+	}
+
+	$self->Check_Options ("MODULE", "NAME", "", $opt) || return 1;
+
+	if ( $self->{module_name} ) {
+		$self->ErrorLang (
+			"MODULE",
+			'one_module_allowed'
+		);
+		return 1;
+	}
+	
+	$self->{module_name} = $$opt{name};
+
+	$self->{output}->Write("package $$opt{name};\n");
+
+	return 1;
+}
+
+sub Process_Use {
+#
+# INPUT:	1. Options
+#		2. Ende-Tag?
+#
+# OUTPUT:	1. Danach innerhalb eines PRINT-Statements?
+#
+	my $self = shift;
+	my ($opt, $end_tag) = @_;
+
+	$self->Check_Options ("USE", "NAME", "NOCIPP", $opt) || return 1;
+
+	my $init = '';
+	if ( not $$opt{nocipp} ) {
+		$init = "$$opt{name}->cipp_init;";
+	}
+
+	$self->{output}->Write(
+		qq[eval "use $$opt{name};$init";\n].
+		qq[die \$\@ if \$\@;\n]
+	);
+
+	return 1;
+}
 #---------------------------------------------------------------------------------
 
 sub Resolve_Object_Source {
@@ -3207,7 +3415,22 @@ sub Resolve_Object_Source {
 		$file = $self->{projects}->{$project}."/$file";
 
 		if ( defined $object_type ) {
-			$file .= ".$object_type";
+			my $object_ext = $object_type;
+			
+			if ( $object_type eq 'cipp-img' ) {
+				my ($type, $ext) = $self->Get_Object_Type ($object);
+				$object_ext = $ext;
+			}
+
+			$file .= ".$object_ext";
+
+			my $object_file = $object;
+			$object_file =~ s/^[^\.]+\.//;
+			$object_file =~ s!\.!/!g;
+			$object_file .= ".$object_ext";
+
+			$self->{direct_used_objects}->{"$object_file:$object_type"} = 1
+				unless $self->{object_name} eq $object;
 		}
 	} else {
 		my $subr = $apache_mod->lookup_uri ($object);
@@ -3229,7 +3452,9 @@ sub Object_Exists {
 
 	return 1 if $self->{apache_mod};
 
-	if ( defined $self->Get_Object_Type ($object) ) {
+	my $type = $self->Get_Object_Type ($object);
+
+	if ( defined $type ) {
 		return 1;
 	} else {
 		return undef;
@@ -3244,7 +3469,7 @@ sub Get_Object_Type {
 #
 	my ($self, $object) = @_;
 
-	die "Get_Object_Type im Apache-Modus aufgerufen" if $self->{apache_mod};
+	confess "Get_Object_Type im Apache-Modus aufgerufen" if $self->{apache_mod};
 
 	my $file = $self->Resolve_Object_Source ($object, undef);
 
@@ -3266,7 +3491,26 @@ sub Get_Object_Type {
 
 	return undef if scalar @filenames != 1;
 	$filenames[0] =~ /\.([^\.]+)$/;
-	return $1;
+	my $ext = $1;
+	my $type = $ext;
+	
+	if ( $ext =~ /^(gif|jpg)$/i ) {
+		$type = 'cipp-img';
+	}
+
+	my $object_file = $object;
+	$object_file =~ s/^[^\.]+\.//;
+	$object_file =~ s!\.!/!g;
+	$object_file .= ".$ext";
+
+	$self->{direct_used_objects}->{"$object_file:$type"} = 1
+		unless $self->{object_name} eq $object;
+
+	if ( wantarray ) {
+		return ($type, $ext);
+	} else {
+		return $type;
+	}
 }
 
 sub Get_Object_URL {
@@ -3296,7 +3540,7 @@ sub Get_Object_URL {
 
 	# F¸r normales CIPP geht's hier weiter
 
-	my $object_type = $self->Get_Object_Type ($object);
+	my ($object_type, $object_ext) = $self->Get_Object_Type ($object);
 	my $object_path = $object;
 
 	$object_path =~ s!\.!/!g;
@@ -3310,7 +3554,15 @@ sub Get_Object_URL {
 	} elsif ( $object_type eq 'cipp-html' ) {
 		$object_url =  "\$CIPP_Exec::cipp_doc_url/$object_path.html";
 	} elsif ( $object_type eq 'cipp-img' ) {
-		my $ext = $self->Get_Image_Info($object);
+		my $ext;
+		if ( $object_type ne $object_ext ) {
+			# newspirit2 - kein .cipp-img mehr, sondern richtige
+			# Extensions. Wir brauchen kein Get_Image_Info
+			# in diesem Fall
+			$ext = $object_ext;
+		} else {
+			$ext = $self->Get_Image_Info($object);
+		}
 
 		if ( ! defined $ext ) {
 			$self->ErrorLang (
