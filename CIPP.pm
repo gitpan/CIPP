@@ -1,7 +1,7 @@
 package CIPP;
 
-$VERSION = "1.92";
-$REVISION = q$Revision: 1.17 $; 
+$VERSION = "1.93";
+$REVISION = q$Revision: 1.18 $; 
 
 use strict;
 use CIPP::InputHandle;
@@ -613,7 +613,7 @@ package CIPP_Exec;
 	}
 #	print STDERR "mime_type=$self->{mime_type}\n";
 	
-		if ( $self->{mime_type} eq 'text/html' ) {
+		if ( $self->{mime_type} eq 'text/html' and not $apache_mod ) {
 			$self->{target}->Write ( 
 				"print \"<!-- generated with CIPP ".
 				$self->{version}."/$CIPP::REVISION, ".
