@@ -1,6 +1,13 @@
-$Id: Changes,v 1.17 2001/10/13 14:00:38 joern Exp $
+$Id: Changes,v 1.18 2001/10/30 10:02:05 joern Exp $
 
 Revision history for Perl extension CIPP.
+
+2.39 Tue Oct 30 2001, joern
+	Bugfix:
+	- upload files are not closed by CIPP, instead they're
+	  seeked to the beginning, thus mulitpile saving the
+	  same file is possible (even if the same file was
+	  uploaded via different upload fields in one request)
 
 2.38 Sat Oct 13 2001, joern
 	Bugfix:

@@ -1,4 +1,4 @@
-# $Id: CIPP.pm,v 1.16 2001/10/13 14:00:38 joern Exp $
+# $Id: CIPP.pm,v 1.17 2001/10/30 10:02:05 joern Exp $
 
 # TODO
 #
@@ -9,8 +9,9 @@ package CIPP;
 use strict;
 use vars qw ( $INCLUDE_SUBS $VERSION $REVISION );
 
-$VERSION = "2.38";
-$REVISION = q$Revision: 1.16 $; 
+$VERSION = "2.39";
+$REVISION = q$Revision: 1.17 $; 
+
 $INCLUDE_SUBS = 0;
 
 use Config;
@@ -2807,23 +2808,23 @@ sub Process_Savefile {
 
 	my $code = "{\nno strict;\n";
 	$code .= "my \$cipp_filehandle = CGI::param($formvar);\n";
-	$code .= "die '$$opt{throw}\tParameter nicht gefunden. Keine Uploaddatei angegeben?'\n ";
+	$code .= "die '$$opt{throw}\tParameter not found. Did you specify an upload file?'\n ";
 	$code .= "if not \$cipp_filehandle;\n";
 	$code .= "open (cipp_SAVE_FILE, \"> $$opt{filename}\")\n";
-	$code .= "or die \"$$opt{throw}\tDatei '$$opt{filename}' ".
-		 "kann nicht zum Schreiben geoffnet werden\";\n";
+	$code .= "or die \"$$opt{throw}\tCan't open file '$$opt{filename}' ".
+		 "for writing.\";\n";
 	$code .= "binmode cipp_SAVE_FILE;\n";
 	$code .= "binmode \$cipp_filehandle;\n";
 	$code .= "my (\$cipp_filebuf, \$cipp_read_result);\n";
 	$code .= "while (\$cipp_read_result = read \$cipp_filehandle, ".
 		 "\$cipp_filebuf, 1024) {\n";
 	$code .= "print cipp_SAVE_FILE \$cipp_filebuf ";
-	$code .= "or die \"$$opt{throw}\tFehler beim Schreiben der Upload-Datei\";\n";
+	$code .= "or die \"$$opt{throw}\tError when writing the file.\";\n";
 	$code .= "}\n";
 	$code .= "close cipp_SAVE_FILE;\n";
 	$code .= "(!defined \$cipp_read_result) and \n";
-	$code .= "die \"$$opt{throw}\tFehler beim Lesen der Upload-Datei. Wurde ENCTYPE=multipart/form-data beim Upload-Formular angegeben?\";\n";
-	$code .= "close \$cipp_filehandle;\n";
+	$code .= "die \"$$opt{throw}\tError on reading the upload file. Did you specify ENCTYPE=multipart/form-data?\";\n";
+	$code .= "seek \$cipp_filehandle,0,0;\n";
 	$code .= "}\n";
 	
 	$self->{output}->Write ($code);
