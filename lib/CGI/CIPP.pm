@@ -1,7 +1,7 @@
 package CGI::CIPP;
 
-$VERSION = "0.08";
-$REVISION = q$Revision: 1.2 $;
+$VERSION = "0.09";
+$REVISION = q$Revision: 1.4 $;
 
 use strict;
 use Carp;
@@ -41,6 +41,7 @@ sub request {
 		cache_dir 		=> $par{cache_dir},
 		databases 		=> $par{databases},
 		default_database 	=> $par{default_database},
+		include_subs		=> 1, # $par{include_subs},
 		filename 		=> undef,
 		uri 			=> $path_info,
 		error			=> undef,
@@ -131,7 +132,7 @@ sub preprocess {
 	my $persistent = 0;
 	my $apache_mod = $self;
 	my $project = undef;
-	my $use_inc_cache = 0;
+	my $use_inc_cache = $self->dir_config ("include_subs");
 	my $lang = $self->{lang};
 
 	require CIPP;
@@ -622,6 +623,8 @@ sub internal_redirect {
 	1;
 }
 
+sub log_error {
+}
 
 package CGI::CIPP::Lookup;
 

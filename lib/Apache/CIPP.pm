@@ -1,7 +1,7 @@
 package Apache::CIPP;
 
 $VERSION = "0.14";
-$REVISION = q$Revision: 1.3 $;
+$REVISION = q$Revision: 1.4 $;
 
 use strict;
 
@@ -422,6 +422,7 @@ sub error {
 	my ($type) = split ("\t", $error);
 	$error =~ s/^([^\t]+)\t//;
 	
+	$r->print ("</table></table></table></table></table>\n");
 	$r->print ("<P>Error executing <B>$uri</B>:\n");
 	$r->print ("<DL><DT><B>Type</B>:</DT><DD><TT>$type</TT></DD>\n");
 	$r->print ("<P><DT><B>Message</B>:</DT><DD><PRE>$error</PRE></DD></DL>\n");

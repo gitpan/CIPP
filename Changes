@@ -1,6 +1,15 @@
-$Id: Changes,v 1.16 2001/07/24 15:32:45 joern Exp $
+$Id: Changes,v 1.17 2001/10/13 14:00:38 joern Exp $
 
 Revision history for Perl extension CIPP.
+
+2.38 Sat Oct 13 2001, joern
+	Bugfix:
+	- CGI::CIPP did not recognize the include_sub directive
+	  correctly
+	- Apache::CIPP prints now many "</table>" before giving
+	  error messages. This prevents invisible error messages
+	  inside tables which are not finished due to the
+	  exception.
 
 2.37 Tue Jul 24 2001, joern
 	Bugfix:

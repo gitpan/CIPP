@@ -1,4 +1,4 @@
-# $Id: CIPP.pm,v 1.15 2001/07/24 15:33:07 joern Exp $
+# $Id: CIPP.pm,v 1.16 2001/10/13 14:00:38 joern Exp $
 
 # TODO
 #
@@ -9,8 +9,8 @@ package CIPP;
 use strict;
 use vars qw ( $INCLUDE_SUBS $VERSION $REVISION );
 
-$VERSION = "2.37";
-$REVISION = q$Revision: 1.15 $; 
+$VERSION = "2.38";
+$REVISION = q$Revision: 1.16 $; 
 $INCLUDE_SUBS = 0;
 
 use Config;
