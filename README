@@ -1,0 +1,132 @@
+CIPP - CgI Perl Preprocessor by Joern Reder
+
+Copyright (c) 1997-1999 dimedis GmbH, Germany
+
+This library ist free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.
+
+$Id: README,v 1.5 1999/01/28 17:38:53 joern Exp $
+
+
+WHAT IS CIPP?
+
+	CIPP is a perl module for translating CIPP sources to pure perl
+	programs. CIPP defines a HTML embedding language called CIPP
+	which has powerful features for CGI and database developers.
+	Many standard CGI- and database operations (and much more)
+	are covered by CIPP, so the developer has no need to code
+	them again and again.
+
+	CIPP is useful in two ways. One aproach is to let CIPP generate
+	standalone CGI scripts, which only need a little environment to
+	run (some configuration files). If you want to use CIPP in this
+	way: there is a complete development environment called spirit
+	which supports you in many ways, to develop such CGI programms
+	with CIPP. spirit can be downloaded from CPAN, but is only free
+	for non commercial usage.
+	
+	The second is to use the Apache::CIPP_Handler module. This module
+	defines an Apache request handler for CIPP sources, so they will
+	be executed in an Apache environment on the fly, with a two-level
+	cache and great performance. The Apache::CIPP_Handler module
+	is free software.
+
+WHAT DO YOU NEED TO USE CIPP
+
+	CIPP itself needs perl 5.004_01 or better. To use its database
+	interface you must have installed the DBI module (somewhat
+	better than version 0.97) and a DBD-module for your database
+	system.
+	
+	CIPP is a pure perl module, so you need no C compiler.
+
+WHICH PLATFORMS ARE SUPPORTED
+
+	CIPP runs on any Unix system with a perl interpreter.
+	The Win32 platforms are not tested yet very well but most
+	functions should run ok.
+
+DOWNLOAD CIPP
+
+	CIPP (and also spirit mentioned above) can be downloaded
+	from CPAN
+	
+		$CPAN/authors/id/J/JR/JRED
+
+	 or (in future) from the spirit website.
+
+		http://spirit.dimedis.de/
+
+		(this site will start March 1999)
+
+INSTALLING CIPP
+
+	perl Makefile.PL
+	make
+	make install
+
+DOCUMENTATION
+
+	Technical information about the usage of the CIPP.pm module
+	is embedded as POD in CIPP.pm and can be retrieved with
+	"perldoc CIPP". You will not need this information, if you
+	use CIPP either with Apache::CIPP_Handler or spirit.
+	
+	The CIPP language reference manual can be downloaded from CPAN as
+	an extra package. This is usefull, because the format of the
+	documentation is PDF and the uncompressed file has more than 500kb.
+	Also not every modification of CIPP leads to modification of
+	the documentation.
+
+SUPPORTED LANGUAGES
+
+	When the development of CIPP started (spring 1997), there was no
+	idea to publish it, as it was designed for spirit, and spirit
+	was intended for internal use only.
+
+	So the documentation and all CIPP messages are in german language.
+	As soon as possible we want to provide an english version, too.
+
+SIMPLE EXAMPLE
+
+	Here is a simple example of using CIPP in an HTML source to
+	retrieve some information from a database. Think this as a
+	HTML page which will be executed on the fly in an Apache
+	environment or will be converted to a standalone CGI script.
+	
+	Note: there is no code to connect to the database. This is
+	done implicitely. The configuration is taken from Apache
+	or from an external configuration file, if you use the CGI
+	standalone version of CIPP.
+	
+	<HTML>
+	<HEAD><TITLE>tiny litte CIPP example</TITLE></HEAD>
+	<BODY>
+	<H1>tiny litte CIPP example</H1>
+	<P>
+	
+	<TABLE BORDER=1>
+	<TR><TD>Name</TD><TD>Adress</TD><TD>Phone</TD></TR>
+	
+	<?SQL SQL="select name, adress, phone from people"
+	      MY VAR="$n, $a, $p">
+	  <TR><TD>$n</TD><TD>$a</TD><TD>$p</TD></TR>
+	<?/SQL>
+	</TABLE>
+	
+	</BODY>
+	</HTML>
+
+BUG REPORTING
+
+	Please send any bug reports or comments to
+	
+		cipp-bug@dimedis.de
+	
+	or use the bug report formular on the spirit website
+	
+		http://spirit.dimedis.de/
+
+		(this site will start March 1999)
+
+	You can speak german with us, but we understand english, too ;)
