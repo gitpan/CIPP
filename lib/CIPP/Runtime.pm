@@ -1,28 +1,9 @@
-#==============================================================================
-#
-# MODUL
-#	CIPP::Runtime.pm
-#
-# REVISION
-#	$Revision: 1.8 $
-#
-# DESCRIPTION
-#	This module encapsulates some common functions, which are
-#	needed by CIPP programs at runtime.
-#
-#------------------------------------------------------------------------------
-# MODIFICATION HISTORY
-#
-#	26.03.2001 0.37 joern
-#		- COMPATIBLE CHANGES:
-#		  more error message output when database connections fail
-#
-#==============================================================================
+# $Id: Runtime.pm,v 1.10 2002/06/17 13:51:39 joern Exp $
 
 package CIPP::Runtime;
 
-$REVISION = q$Revision: 1.8 $;
-$VERSION = "0.39";
+$REVISION = q$Revision: 1.10 $;
+$VERSION = "0.41";
 
 use strict;
 use FileHandle;
@@ -363,10 +344,23 @@ sub Get_Object_URL {
 	return "$CIPP_Exec::cipp_doc_url/$file";
 }
 
+my %DBH_CACHE;
 
 sub Open_Database_Connection {
 	my ($db_name, $apache_request) = @_;
 	
+	my $cache_key = "$CIPP_Exec::cipp_project-$db_name";
+
+	if ( defined $DBH_CACHE{$cache_key} ) {
+		my $dbh = $DBH_CACHE{$cache_key};
+		if ( eval { $dbh->ping } ) {
+			$CIPP_Exec::cipp_db_connection_cached = 1;
+			return $dbh;
+		}
+	}
+
+	$CIPP_Exec::cipp_db_connection_cached = 0;
+
 	require DBI;
 
 	my $pkg;
@@ -378,6 +372,8 @@ sub Open_Database_Connection {
 	my $password;   
 	my $autocommit; 
 	my $init;       
+	my $init_perl;
+	my $cache_enable;
 
 	if ( not $apache_request ) {
 		# we are in new.spirit plain CGI environment, so read
@@ -388,11 +384,14 @@ sub Open_Database_Connection {
 			if not -r $config_file;
 		do $config_file;
 		no strict 'refs';
-		$data_source = \${"$pkg:\:data_source"};
-		$user	     = \${"$pkg:\:user"};
-		$password    = \${"$pkg:\:password"};
-		$autocommit  = \${"$pkg:\:autocommit"};
-		$init	     = \${"$pkg:\:init"};
+		$data_source  = \${"$pkg:\:data_source"};
+		$user	      = \${"$pkg:\:user"};
+		$password     = \${"$pkg:\:password"};
+		$autocommit   = \${"$pkg:\:autocommit"};
+		$init	      = \${"$pkg:\:init"};
+		$init_perl    = \${"$pkg:\:init_perl"};
+		$cache_enable = \${"$pkg:\:cache_enable"};
+
 	} else {
 		# we are in Apache::CIPP or CGI::CIPP environment
 		# ok, lets read the datbase configuration from Apache
@@ -420,31 +419,70 @@ sub Open_Database_Connection {
 
 	croak "sql_open\t$DBI::errstr\n$@" if $DBI::errstr or $@ or not $dbh;
 	
-	push @CIPP_Exec::cipp_db_list, $dbh;
-	
 	if ( $$init ) {
 		$dbh->do ( $$init );
 		die "database_initialization\t$DBI::errstr" if $DBI::errstr;
 	}
+
+	if ( $$init_perl ) {
+		eval_init_perl (
+			code_sref => $init_perl,
+			dbh       => $dbh,
+		);
+	}
 	
+	if ( $$cache_enable ) {
+		# cache handle, if caching is enabled
+		$DBH_CACHE{$cache_key} = $dbh;
+
+	} else {
+		# no caching. push handle to 'close' list. all handles
+		# registered here will be rollbacked and disconnected
+		# on request exit.
+		push @CIPP_Exec::cipp_close_db_list, $dbh;
+	}
+
 	return $dbh;
+}
+
+sub eval_init_perl {
+	my %__par = @_;
+	my ($__code_sref, $dbh) = @__par{'code_sref','dbh'};
+
+	eval $$__code_sref;
+	croak "sql_open\tError executing database initialization perl code!\n$@"
+		if $@;
+
+	1;
 }
 
 sub Close_Database_Connections {
 	return if $CIPP_Exec::no_db_connect;
 
-	require DBI;
-	
-	foreach my $dbh ( @CIPP_Exec::cipp_db_list ) {
-		# Log ("closing db connection: $dbh");
+	# close all database connections, which are registered
+	# in the 'close' dbh list (these are non-cached connections)
+	foreach my $dbh ( @CIPP_Exec::cipp_close_db_list ) {
+		# Log ("closing db connection: '$dbh'");
 		if ( $dbh ) {
 			eval { $dbh->rollback if not $dbh->{AutoCommit} };
 			eval { $dbh->disconnect };
 		}
 	}
 
-	@CIPP_Exec::cipp_db_list = ();
+	# reset the 'close' dbh list
+	@CIPP_Exec::cipp_close_db_list = ();
+
+	# rollback transaction on cached db connections, which have
+	# set AutoCommit to off.
+	my ($name, $dbh);
+	while ( ($name, $dbh) = each %DBH_CACHE ) {
+		# Log ("close open transactions dbh='$dbh' db='$name'");
+		if ( $dbh ) {
+			eval { $dbh->rollback if not $dbh->{AutoCommit} };
+		}
+	}
+
+	1;	
 }
 	
-
 1;

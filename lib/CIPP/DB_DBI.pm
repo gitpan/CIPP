@@ -1,7 +1,7 @@
 package CIPP::DB_DBI;
 
-$VERSION = "0.64";
-$REVISION = q$Revision: 1.1.1.1 $;
+$VERSION = "0.66";
+$REVISION = q$Revision: 1.4 $;
 
 use strict;
 
@@ -104,6 +104,8 @@ sub Begin_SQL {
 
 	# Wenn Befehl mit ; abgeschlossen ist, ; entfernen
 	$sql =~ s/;$//;
+	$sql =~ s/^\s+//;
+	$sql =~ s/\s+$//;
 
 	my ($code, $var, $maxrows_cond, $winstart_cmd);
 	
@@ -184,6 +186,7 @@ sub Begin_SQL {
 		# ausser einem einzelnen Wert nichts zurueckliefert wird
 
 		if ( $bind_list ne '' ) {
+			$code .= qq[for ( $bind_list ) { \$_ = undef if \$_ eq '' };\n];
 			$bind_list = ", undef, $bind_list";
 		}
 
@@ -275,9 +278,6 @@ sub Commit {
 	my $db_name	= $self->{db_name};
 	my $pkg		= $self->{pkg};
 
-#	my $code  = qq{${pkg}::dbh->commit();}."\n";
-#	$code .= qq{die "$throw\t\$DBI::errstr" if defined \$DBI::errstr;}."\n";
-
 	my $dbh;
 	my $code;
 	if ( $self->{dbh_var} ) {
@@ -288,10 +288,8 @@ sub Commit {
 		$code = $self->Open_Connection_Code ($db_name);
 	}
 
-	$code .= qq[if ( ${pkg}::data_source !~ /mysql/ ) {\n];
 	$code .= qq{${dbh}->commit();}."\n";
 	$code .= qq{die "$throw\t\$DBI::errstr" if defined \$DBI::errstr;}."\n";
-	$code .= qq[}\n];
 
 	return $code;
 }
@@ -358,15 +356,11 @@ sub Autocommit {
 		$code = $self->Open_Connection_Code ($db_name);
 	}
 
-	$code .= qq[if ( ${pkg}::data_source !~ /mysql/ ) {\n];
-
 	if ( $status == 0 ) {
 		$code .= qq{${dbh}->{AutoCommit}=0;}."\n";
 	} else {
 		$code .= qq{${dbh}->{AutoCommit}=1;}."\n";
 	}
-
-	$code .= qq[}\n];
 
 	return $code;
 }

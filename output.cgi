@@ -75,9 +75,9 @@ print qq[
 </BODY>
 </HTML>
 ];
-CIPP::Runtime::Close_Database_Connections();
 $CIPP_Exec::cipp_http_header_printed = 0;
 }; # CIPP-GENERAL-EXCEPTION-EVAL;
 end_of_cipp_program:
 my $cipp_general_exception = $@;
+CIPP::Runtime::Close_Database_Connections();
 die $cipp_general_exception if $cipp_general_exception;

@@ -1,4 +1,4 @@
-# $Id: CIPP.pm,v 1.18 2001/11/09 11:37:06 joern Exp $
+# $Id: CIPP.pm,v 1.29 2003/08/07 07:59:33 joern Exp $
 
 # TODO
 #
@@ -9,8 +9,8 @@ package CIPP;
 use strict;
 use vars qw ( $INCLUDE_SUBS $VERSION $REVISION );
 
-$VERSION = "2.40";
-$REVISION = q$Revision: 1.18 $; 
+$VERSION = "2.50";
+$REVISION = q$Revision: 1.29 $; 
 
 $INCLUDE_SUBS = 0;
 
@@ -767,163 +767,14 @@ package CIPP_Exec;
 		 q[my $cipp_general_exception = $@;]."\n"
 	);
 
-	if ( not $apache_mod ) {
+	# DB-Connections schließen
+	if ( defined $self->{used_databases} ) {
 		$self->{output}->Write (
-			"die \$cipp_general_exception if \$cipp_general_exception ".
-			"and \$CIPP_Exec::_cipp_in_execute;\n".
-			"CIPP::Runtime::Exception(\$cipp_general_exception) if \$cipp_general_exception;\n"
-		);
-	} else {
-		$self->{output}->Write (
-			"die \$cipp_general_exception if \$cipp_general_exception;\n"
+			qq[CIPP::Runtime::Close_Database_Connections();\n]
 		);
 	}
-}
 
-sub Generate_CGI_Code_old_version {
-	my $self = shift;
-	return if ! $self->{init_status};
-	
-	# Sonderregelung für CIPP Module: die brauchen so oder so ein 'use strict'
-	# und ggf. Database_Code (egal ob $self->{write_script_header} gesetzt ist).
-
-	if ( $self->{result_type} eq 'cipp-module' ) {
-		if ( $self->{use_strict} ) {
-			$self->{target}->Write ("use strict;\n");
-		}
-#		$self->Generate_Database_Code ();
-		return;
-	}
-	
-	return if ! $self->{write_script_header};
-
-	my $apache_mod = $self->{apache_mod};
-	
-	$self->{target}->Write ("#!$self->{perl_interpreter_path}\n") if not $apache_mod;
-	$self->{target}->Write ("package CIPP_Exec;\n");
-	$self->{target}->Write (qq{\$cipp::back_prod_path="$self->{back_prod_path}";\n});
-	$self->{target}->Write (qq[BEGIN{\$cipp::back_prod_path="$self->{back_prod_path}";}\n]);
-	
-	# wenn gefordert, use strict einbauen
-	my $use_strict = '';
-	if ( $self->{use_strict} ) {
-		$use_strict = "use strict;\n";
-	}
-
-	my $package_import = '';
-	if ( not defined $self->{cgi_input} and not defined $self->{cgi_optional} ) {
-		$package_import = q[$cipp_query->import_names('CIPP_Exec');];
-	}
-
-	# Headercode generieren
-	$self->{target}->Write ($use_strict);
-	if ( $apache_mod ) {
-		$self->{target}->Write (
-			'$CIPP_Exec::apache_mod = 1;'."\n".
-			'$CIPP_Exec::apache_program = "'.$self->{call_path}.'";'."\n".
-			'$CIPP_Exec::apache_request = $cipp_apache_request;'."\n"
-		);
-		
-		if ( $INCLUDE_SUBS ) {
-			$self->{target}->Write (
-				"use CIPP::Request;\n".
-				'my $cipp_request_object = new CIPP::Request ($cipp_apache_request);'."\n"
-			);
-		}
-	}
-	
-	if ( not $apache_mod ) {
-#---
-# The # sign after the BEGIN { below tells new.spirit, that
-# this BEGIN block may not be stripped before syntax checking
-# A bit fishy, but...
-#---
-		$self->{target}->Write (
-q(
-local @INC = @INC;
-BEGIN {#
-	if ( not $CIPP_Exec::_cipp_in_execute ) {
-		$0 =~ m!^(.*)[/\\\\][^/\\\\]+$!;chdir $1;
-	}
-).qq[
-#	print STDERR "\\n\$\$ do \$cipp::back_prod_path/config/cipp.conf\\n";
-	do "\$cipp::back_prod_path/config/cipp.conf";
-	unshift (\@INC, "\$cipp::back_prod_path/cgi-bin");
-	unshift (\@INC, "\$cipp::back_prod_path/lib");
-	unshift (\@INC, \@CIPP_Exec::cipp_perl_lib_dir)
-		if \@CIPP_Exec::cipp_perl_lib_dir;
-}
-]);
-	}
-	$self->{target}->Write (
-qq[
-my \$cipp_query;
-if ( ! defined \$CIPP_Exec::_cipp_in_execute ) {
-	use CIPP::Runtime 0.36;
-	use CGI;
-	package CIPP_Exec;
-	\$cipp_query = new CGI;
-	$package_import
-}
-]);
-
-	$self->{target}->Write (
-qq[
-eval { # CIPP-GENERAL-EXCEPTION-EVAL
-package CIPP_Exec;
-# Debugging
-CIPP::Runtime::init_request();
-]);
-
-	# Datenbankcode generieren
-	
-	$self->Generate_Database_Code ();
-
-	# HTTP Header
-
-	$self->Generate_HTTP_Header_Code ();
-
-	# explizites Importieren von CGI Parameter, wenn $cgi_input
-	# angegeben wurde, sonst Importieren in den Namespace über
-	# CGI->import_names()
-
-	if ( $self->{cgi_input} ) {
-		if ( scalar @{$self->{cgi_input}} ) {
-			$self->{target}->Write ("my \@cipp_missing_input;\n");
-		}
-
-		my ($var, $var_name);
-		foreach $var (@{$self->{cgi_input}}) {
-			($var_name = $var) =~ s/[\$\@]//g;
-			$self->{target}->Write (
-				"my $var = \$cipp_query->param('$var_name');\n".
-				"push \@cipp_missing_input, '$var_name' ".
-				"if ! defined $var;\n"
-			);
-		}
-		if ( scalar @{$self->{cgi_input}} ) {
-			$self->{target}->Write (
-				"if ( scalar(\@cipp_missing_input) ) {\n".
-				"	die \"CGI_INPUT\tEs fehlen folgende Eingabeparameter:<P>\".\n".
-				"	join (', ', \@cipp_missing_input).\"<P>\n\";\n}\n"
-			);
-		}
-		foreach $var (@{$self->{cgi_optional}}) {
-			($var_name = $var) =~ s/[\$\@]//g;
-			$self->{target}->Write (
-				"my $var = \$cipp_query->param('$var_name');\n"
-			);
-		}
-	}
-	
-	# Footercode generieren
-	$self->{output}->Write (
-		 q[$CIPP_Exec::cipp_http_header_printed = 0;]."\n".
-		qq[}; # CIPP-GENERAL-EXCEPTION-EVAL;]."\n".
-		qq[end_of_cipp_program:]."\n".
-		 q[my $cipp_general_exception = $@;]."\n"
-	);
-
+	# General Exception Handling
 	if ( not $apache_mod ) {
 		$self->{output}->Write (
 			"die \$cipp_general_exception if \$cipp_general_exception ".
@@ -1054,12 +905,12 @@ sub Generate_Database_Code {
 		$code .= $dbph->Init;
 	}
 
-	# Ende des CGI Programms: schließen der Datenbankconnections
+	# Start des Programms: Initialisieren der Verbindungen
 	$self->{target}->Write ( $code );
 
-	$self->{output}->Write (
-		qq[CIPP::Runtime::Close_Database_Connections();\n]
-	);
+	# Schließen der Datenbankconnections
+	# => hinter General Exception Abfang in
+	#    Generate_CGI_Code()
 }
 
 sub Preprocess {
@@ -1330,7 +1181,9 @@ sub Chunk_Out {
 
 sub Format_Debugging_Source {
 	my $self = shift;
-	
+	my %par = @_;
+	my ($brief) = @par{'brief'};
+
 	my $html = "";		# Scalar für den HTML-Code
 
 	my $ar = $self->Get_Messages;
@@ -1359,6 +1212,8 @@ sub Format_Debugging_Source {
 		++$nr;
 	}
 	$html .= "</pre>\n";
+
+	return \$html if $brief;
 
 	# Nun alle betroffenen Objekte extrahieren und dabei die Fehlermeldungen
 	# in ein Hash umschichten
@@ -1465,7 +1320,7 @@ sub Format_Debugging_Source {
 sub Format_Perl_Errors {
 	my $self = shift;
 
-	my ($code_sref, $error_sref) = @_;
+	my ($code_sref, $error_sref, $brief) = @_;
 
 	my @errors = split (/\n/, $$error_sref);
 	my @code = split (/\n/, $$code_sref);
@@ -1510,7 +1365,7 @@ sub Format_Perl_Errors {
 			"\t0\t".$$error_sref;
 	}
 
-	return $self->Format_Debugging_Source;
+	return $self->Format_Debugging_Source ( brief => $brief );
 }
 
 
@@ -1836,7 +1691,9 @@ sub Process_Include {
 	# ob print Befehle generiert werden sollen oder nicht
 	# (cipp/dynamic), da so jeweils unterschiedliche Versionen
 	# des Includes entstehen.
-	my $inc_cache_key = $name.($self->{gen_print}?"_with_print":"_without_print");
+	my $inc_cache_key = $name.
+		(($self->{gen_print} or $self->{context_stack}->[-1] eq 'force_html')?
+			"_with_print":"_without_print");
 	
 	if ( $self->{apache_mod} ) {
 		$inc_cache_key .= "-".$ENV{SERVER_NAME};
@@ -1852,10 +1709,13 @@ sub Process_Include {
 		}
 	}
 
+	my $mime_type = $self->{context_stack}->[-1] eq 'force_html' ?
+		'text/html' : $self->{mime_type};
+
 	if ( $need_to_preprocess ) {
 		$MACRO = new CIPP
 			($macro_file, \$code, $self->{projects},
-			 $self->{db_driver}, $self->{mime_type},
+			 $self->{db_driver}, $mime_type,
 			 $self->{default_db}, $self->{call_path}.
 			 "[".$self->{input}->Get_Line_Number."]:".$name,
 			 $self->{skip_header_line}, $self->{debugging},
@@ -3336,7 +3196,7 @@ sub Process_Sub {
 		return 1;
 	}
 
-	$self->Check_Options ("SUB", "NAME", "", $opt)
+	$self->Check_Options ("SUB", "NAME", "IMPORT", $opt)
 		 || return 1;
 
 	$self->{output}->Write (
@@ -4014,7 +3874,7 @@ sub Process_Module {
 		return 1;
 	}
 
-	$self->Check_Options ("MODULE", "NAME", "", $opt) || return 1;
+	$self->Check_Options ("MODULE", "NAME", "ISA", $opt) || return 1;
 
 	if ( $self->{module_name} ) {
 		$self->ErrorLang (
@@ -4024,9 +3884,19 @@ sub Process_Module {
 		return 1;
 	}
 	
-	$self->{module_name} = $$opt{name};
-
 	$self->{output}->Write("package $$opt{name};\n");
+
+	if ( $$opt{isa} ) {
+		$self->{output}->Write(
+			qq[{ my \$cipp_mod = "$$opt{isa}";\n].
+			qq[\npush \@$$opt{name}::ISA, \$cipp_mod;\n].
+			qq[\$cipp_mod =~ s!::!/!og;\n].
+			qq[\$cipp_mod .= ".pm";\n].
+			qq[require \$cipp_mod;}\n]
+		);
+	}
+
+	$self->{module_name} = $$opt{name};
 
 	return 1;
 }

@@ -1,6 +1,64 @@
-$Id: Changes,v 1.19 2001/11/09 11:37:06 joern Exp $
+$Id: Changes,v 1.30 2003/08/07 07:59:33 joern Exp $
 
 Revision history for Perl extension CIPP.
+
+2.50 Thu Aug 07 2003, joern
+	Features:
+	- <?SQL>: some special handling to PARAMS of non-SELECT
+	  statements applied. Empty variables will be converted
+	  to undef (NULL) before they're passed to DBI. This
+	  harmonizes the handling of empty strings with different
+	  database systems (e.g. Oracle converts empty strings
+	  to NULL always, while MySQL handles them as-is).
+
+2.49 Thu Jul 17 2003, joern
+	Bugfix:
+	- <?EXIT> didn't close open database connections
+
+2.48 Fri Jun 6  2003, joern
+	Bugfix:
+	- An Include included inside a <?HTML> block by a cipp/dynamic
+	  program which includes didn't generate any output in
+	  the standard HTML context.
+
+2.47 Wed Aug 28 2002, joern
+	Features:
+	- <?SUB> accepts the new CIPP3 option IMPORT, as a no-op.
+	  This just enables the developer to use this CIPP3
+	  feature even for programs, which must compile under
+	  CIPP2 as well.
+
+2.46 Mon Jun 17 2002, joern
+	Features:
+	- new parameter for DB configuration: "Initial Perl
+	  Statement", which is executed just after connecting to
+	  the database. Support by new.spirit 2.0.21 and better.
+
+2.45 Wed Apr 17 2002, joern
+	Features:
+	- strip whitespace from SQL commands before passing them
+	  to DBI. MSSQL *hangs* if a SQL statement begins with
+	  a TAB or NL character... *sigh*
+
+2.44 Tue Apr 09 2002, joern
+	Features:
+	- support for brief error reports
+
+2.43 Thu Jan 30 2002, joern
+	Feature:
+	- <?MODULE ISA="module"> loads 'module' and inherits
+	  from it.
+
+2.42 Wed Jan 23 2002, joern
+	Feature:
+	- in conjunction with new.spirit 2.0.15 CIPP now supports
+	  persistent database connections in mod_perl or SpeedyCGI
+	  environments.
+
+2.41 Fri Dec 10 2001, joern
+	Bugfix:
+	- removed AutoCommit/Commit/Rollback bypassing for MySQL
+	  databases
 
 2.40 Fri Nov  9 2001, joern
 	Bugfix:
