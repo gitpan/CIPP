@@ -8,7 +8,7 @@ $CIPP_Exec::apache_request = $cipp_apache_request;
 
 my $cipp_query;
 if ( ! defined $CIPP_Exec::_cipp_in_execute ) {
-	use CIPP::Runtime;
+	use CIPP::Runtime 0.36;
 	use CGI;
 	package CIPP_Exec;
 	$cipp_query = new CGI;
@@ -17,30 +17,8 @@ if ( ! defined $CIPP_Exec::_cipp_in_execute ) {
 
 eval { # CIPP-GENERAL-EXCEPTION-EVAL
 package CIPP_Exec;
-@CIPP_Exec::cipp_dbh_list = ();
-
-$cipp_db_zyn::data_source = $cipp_apache_request->dir_config ("db_zyn_data_source");
-$cipp_db_zyn::user = $cipp_apache_request->dir_config ("db_zyn_user");
-$cipp_db_zyn::password = $cipp_apache_request->dir_config ("db_zyn_password");
-$cipp_db_zyn::autocommit = $cipp_apache_request->dir_config ("db_zyn_auto_commit");
-use DBI;
-if ( not $CIPP_Exec::no_db_connect ) { eval { $cipp_db_zyn::dbh->disconnect };
-$cipp_db_zyn::dbh = DBI->connect (
-$cipp_db_zyn::data_source,
-$cipp_db_zyn::user,
-$cipp_db_zyn::password,
-{ PrintError => 0,
-  AutoCommit => $cipp_db_zyn::autocommit } );
-die "sql_open	$DBI::errstr" if $DBI::errstr;
-}
-;die "sql_open	dbh is undef" if not $cipp_db_zyn::dbh;
-push @CIPP_Exec::cipp_dbh_list, $cipp_db_zyn::dbh;
-if ( $cipp_db_zyn::init ) {
-my $cipp_sql_code = qq{$cipp_db_zyn::init};
-$cipp_db_zyn::dbh->do( $cipp_sql_code );
-die "database_initialization	$DBI::errstr
-$cipp_sql_code" if defined $DBI::errstr;
-}
+CIPP::Runtime::Close_Database_Connections();
+$cipp_db_zyn::dbh = undef if not $CIPP_Exec::no_db_connect;
 
 
 
@@ -54,6 +32,7 @@ this is a simple test
 
 
 # cippline 5 "input.cipp:&lt;?SQL>"
+$cipp_db_zyn::dbh ||= CIPP::Runtime::Open_Database_Connection ("zyn", $cipp_apache_request);
 my $cipp_sql_code = qq{select num from foo};
 my $cipp_db_zyn_sth = $cipp_db_zyn::dbh->prepare ( $cipp_sql_code );
 die "sql	$DBI::errstr
@@ -96,16 +75,7 @@ print qq[
 </BODY>
 </HTML>
 ];
-if ( not $CIPP_Exec::no_db_connect ) {
-eval { my $cipp_close_dbh;
-while ( $cipp_close_dbh = shift @CIPP_Exec::cipp_dbh_list) {
-  if ( not $cipp_close_dbh->{AutoCommit} ) {
-    $cipp_close_dbh->rollback;
-  }
-  $cipp_close_dbh->disconnect();
-}
-};
-}
+CIPP::Runtime::Close_Database_Connections();
 $CIPP_Exec::cipp_http_header_printed = 0;
 }; # CIPP-GENERAL-EXCEPTION-EVAL;
 end_of_cipp_program:

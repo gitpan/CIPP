@@ -4,7 +4,7 @@
 #	CIPP::Runtime.pm
 #
 # REVISION
-#	$Revision: 1.6 $
+#	$Revision: 1.9 $
 #
 # DESCRIPTION
 #	Enthält Funktionen, die zur Laufzeit von CIPP-CGI Programmen
@@ -132,9 +132,10 @@
 
 package CIPP::Runtime;
 
-$REVISION = q$Revision: 1.6 $;
-$VERSION = "0.34";
+$REVISION = q$Revision: 1.9 $;
+$VERSION = "0.36";
 
+use strict;
 use FileHandle;
 use Cwd;
 use Carp;
@@ -152,7 +153,7 @@ sub Read_Config {
 	     $CIPP::Runtime::cfg_timestamp{$filename} < $file_timestamp ) {
 		my $fh = new FileHandle;
 		open ($fh, $filename);
-		eval join ('', <$fh>)."\n1;";
+		eval join ('', "no strict;\n", <$fh>)."\n1;";
 		die "CONFIG\t$@" if $@;
 		close $fh;
 		$CIPP::Runtime::cfg_timestamp{$filename} = $file_timestamp;
@@ -283,7 +284,7 @@ sub Execute {
 	my $dir=$name;
 	$dir =~ s!/[^/]+$!!;
 	$dir = $CIPP_Exec::cipp_cgi_dir."/$dir";
-	$script = $CIPP_Exec::cipp_cgi_dir."/$name.cgi";
+	my $script = $CIPP_Exec::cipp_cgi_dir."/$name.cgi";
 
 	# In das CGI Verzeichnis wechseln
 
@@ -443,5 +444,81 @@ sub Get_Object_URL {
 
 	return "$CIPP_Exec::cipp_doc_url/$file";
 }
+
+
+sub Open_Database_Connection {
+	my ($db_name, $apache_request) = @_;
+	
+	require DBI;
+
+	my $pkg;
+	($pkg = $db_name) =~ tr/./_/;
+	$pkg = "CIPP_Exec::cipp_db_$pkg";
+
+	my $data_source;
+	my $user;       
+	my $password;   
+	my $autocommit; 
+	my $init;       
+
+	if ( not $apache_request ) {
+		# we are in new.spirit plain CGI environment, so read
+		# the database configuration from file
+		do "$CIPP_Exec::cipp_config_dir/$db_name.db-conf";
+		no strict 'refs';
+		$data_source = \${"$pkg:\:data_source"};
+		$user	     = \${"$pkg:\:user"};
+		$password    = \${"$pkg:\:password"};
+		$autocommit  = \${"$pkg:\:autocommit"};
+		$init	     = \${"$pkg:\:init"};
+	} else {
+		# we are in Apache::CIPP or CGI::CIPP environment
+		# ok, lets read the datbase configuration from Apache
+		# config resp. CGI::CIPP Config (which emulates the
+		# Apache request object)
+		$data_source = \$apache_request->dir_config ("db_${db_name}_data_source");
+		$user	     = \$apache_request->dir_config ("db_${db_name}_user");
+		$password    = \$apache_request->dir_config ("db_${db_name}_password");
+		$autocommit  = \$apache_request->dir_config ("db_${db_name}_auto_commit");
+		$init	     = \$apache_request->dir_config ("db_${db_name}_init");
+	}
+
+	my $dbh;
+	eval {
+		$dbh = DBI->connect (
+			$$data_source, $$user, $$password,
+			{
+				PrintError => 0,
+				AutoCommit => $$autocommit,
+			}
+		);
+	};
+
+	die "sql_open\t$DBI::errstr\n$@" if $DBI::errstr or $@;
+	
+	push @CIPP_Exec::cipp_db_list, $dbh;
+	
+	if ( $$init ) {
+		$dbh->do ( $$init );
+		die "database_initialization\t$DBI::errstr" if $DBI::errstr;
+	}
+	
+	return $dbh;
+}
+
+sub Close_Database_Connections {
+	return if $CIPP_Exec::no_db_connect;
+
+	require DBI;
+	
+	foreach my $dbh ( @CIPP_Exec::cipp_db_list ) {
+		eval {
+			$dbh->disconnect;
+		} if $dbh;
+	}
+
+	@CIPP_Exec::cipp_db_list = ();
+}
+	
 
 1;

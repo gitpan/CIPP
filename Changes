@@ -1,20 +1,104 @@
 Revision history for Perl extension CIPP.
 
-2.15     Tue Nov 28 2000 joern
+2.28	Wed Mar 07 2001 joern
+	- updated CIPP::Manual
+
+2.27	Mon Mar 05 2001 joern
+	- the BEGIN block at the top of each CGI program is marked
+	  with a # sign to tell new.spirit not to strip it off for
+	  syntax checking
+
+2.26	Mon Mar 05 2001 joern
+	- experimental implementation of Subroutine Includes. Includes
+	  are processed to subroutines, instead of copying the content
+	  of the include into the actual document. Programs need much less
+	  memory and can speed up to 20% in a mod_perl environment.
+	  Currently this works only in Apache::CIPP and CGI::CIPP
+	  environment. To enable this feature, set $CIPP::INCLUDE_SUBS
+	  before CIPP->new(), until this feature is "officiall".
+	- a new command: <?DUMP $var ...>. Uses Data::Dumper to dump
+	  the listed variables to STDOUT, encapsulated in a <pre> block.
+	- added a new option to the SQL commands: DBH. If a DBH option
+	  is present, the given variable name is used as the database
+	  handle for this operation. It is not possible to use the DBH
+	  and DB option in combination.
+	  
+	  The following SQL related commands recognize the DBH option:
+	  
+	  <?SQL> <?COMMIT> <?ROLLBACK> <?AUTOCOMMIT> <?DBQUOTE>
+
+2.25	Wed Feb 28 2001 joern
+	- fixed html formatting bug in error formatting function
+
+2.24	Sun Feb 25 2001 joern
+	- ported dynamic database connection feature to Apache::CIPP
+	  and CGI::CIPP. This now works under all CIPP environments.
+
+2.23	Wed Feb 21 2001 joern
+	- error formatting in case of a CIPP/new.spirit module name
+	  clashing was messed up, but there are still problems in
+	  error formatting (very seldom, so I don't hurry ;)
+
+2.22	Mon Feb 19 2001 joern
+	Bugfix:
+	- <?GETURL> did not work for .png images
+
+2.21	Fri Feb 16 2001 joern
+	Bugfix:
+	- <?GETPARAM>, <?GETPARAMLIST> and <?SAVEFILE> did not work
+	  inside of CIPP modules
+
+2.20	Thu Feb 15 2001 joern
+	- <?HTML> forces the preprocessor to generate print statements
+	  even in 'cipp/dynamic' mode.
+
+2.19	Thu Feb 15 2001 joern
+	- database connections are now establisjed dynamically.
+	  In earlier version all required database connections found
+	  in the program were established at the top of the program.
+	  Now the connection is made on the fly, where needed.
+
+	- WARNING: this code is not tested neither under Apache::CIPP
+	           nor CGI::CIPP environment and likely will fail
+		   there. Please dont use CIPP 2.19 with these modules.
+
+2.18	Wed Feb 14 2001 joern
+	- Bugfix: alternate database names did still not work
+	  with new.spirit 2.x
+
+2.17	Mon Feb 12 2001 joern
+	- Bugfix: alternate database names did not work with new.spirit 2.x
+	- Naming of x.bla.db does now work, project name does not matter
+
+2.16	Tue Feb 11 2001 joern
+	- (hopefully) final bug fixing in http header generation:
+	  The project wide configured default HTTP header
+	  was printed, although 'cipp/dynamic' is set and no
+	  <?!HTTPHEADER> occurs.
+	- also a HTTP header was printed, if the 'print_content_type'
+	  attribute was set to false (e.g. in case of generating
+	  a static HTML page with new.spirit)
+
+2.16_01	Tue Feb  6 2001 joern
+	- fix for usage with new.spirit 2.x. The new style .m files
+	  for object properties broke the object source file resolution
+	  algorithm
+
+2.15    Tue Nov 28 2000 joern
 	- added <?INPUT TYPE="image" SRC="x.gifs.picture">
 	- fixed Bug in HTTP Header generation in case of
 	  "cipp/dynamic" mode
 
-2.14_04  Fri Oct 13 2000 joern
+2.14_04 Fri Oct 13 2000 joern
 	- Bugfix: a broken http header was printed when
 	          generating CIPP-HTML files with new.spirit 2.x
 
-2.14_03  Sun Aug 13 2000 joern
+2.14_03 Sun Aug 13 2000 joern
 	- Include cache works now Ok in Apache::CIPP
 	  environments, if same named include occur
 	  in different virtual hosts
 
-2.14_02  Tue Aug  8 2000 joern
+2.14_02 Tue Aug  8 2000 joern
 	INTERNAL BETA RELEASE PRE 2.15
 	- this version represents a huge merge of the two CIPP
 	  trunks 2-0-9-patches and 2.14_01.

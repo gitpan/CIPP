@@ -1,9 +1,9 @@
 package CIPP::LangEN;
 
-# $Id: LangEN.pm,v 1.6 2001/01/31 11:32:42 joern Exp $
+# $Id: LangEN.pm,v 1.7 2001/03/05 16:42:55 joern Exp $
 
 $VERSION = "0.01";
-$REVISION = q$Revision: 1.6 $;
+$REVISION = q$Revision: 1.7 $;
 
 use strict;
 
@@ -45,6 +45,7 @@ package CIPP::Lang;
 	sql_maxrows		=> "you cannot combine MAXROWS with WINSTART and WINSIZE",
 	sql_no_default_db	=> "no default database is defined",
 	sql_unknown_database	=> "unknown database identifier '%s'",
+	sql_db_dbh_combination	=> "invalid combination of DB and DBH",
 	
 	autocommit_on_off	=> "neither ON nor OFF specified",
 	

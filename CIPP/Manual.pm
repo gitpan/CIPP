@@ -272,6 +272,34 @@ Redirects to another URL internally
 
 =back
 
+=head2 Preprocessor
+
+=over 8
+
+=item !AUTOPRINT
+
+Controls automatic output of HTML code
+
+=item !HTTPHEADER
+
+Dynamic generation of a HTTP header
+
+=item !PROFILE
+
+Initiate generation of profiling code
+
+=back
+
+=head2 Debugging
+
+=over 8
+
+=item DUMP
+
+Dumps preformatted contents of data structures
+
+=back
+
 =head1 COMMAND E<lt>?#>
 
 =over 8
@@ -442,6 +470,7 @@ SQL
 
  <?AUTOCOMMIT ( ON | OFF )
               [ DB=database_name ]
+              [ DBH=database_handle ]
               [ THROW=exception ] >
 
 =item B<Description>
@@ -463,6 +492,10 @@ Switch AutoCommit modus either on or off.
 This is the CIPP internal name of the database for this command. In CGI::CIPP or Apache::CIPP environment this name has to be defined in the appropriate global configuration. In a new.spirit environment this is the name of the database configuration object in dotC<-s>eparated notation.
 
 If DB is ommited the project default database is used.
+
+=item B<     DBH>
+
+Use this option to pass an existing DBI database handle, which should used for this SQL command.  You can't use the DBH option in conjunction with DB.
 
 =item B<     THROW>
 
@@ -649,6 +682,7 @@ SQL
 =item B<Syntax>
 
  <?COMMIT [ DB=database_name ]
+          [ DBH=database_handle ]
           [ THROW=exception ] >
 
 =item B<Description>
@@ -666,6 +700,10 @@ If you are not in E<lt>?AUTOCOMMIT ON> mode a transaction begins with the first 
 This is the CIPP internal name of the database for this command. In CGI::CIPP or Apache::CIPP environment this name has to be defined in the appropriate global configuration. In a new.spirit environment this is the name of the database configuration object in dotC<-s>eparated notation.
 
 If DB is ommited the project default database is used.
+
+=item B<     DBH>
+
+Use this option to pass an existing DBI database handle, which should used for this SQL command.  You can't use the DBH option in conjunction with DB.
 
 =item B<     THROW>
 
@@ -759,7 +797,8 @@ SQL
  <?DBQUOTE VAR=variable
            [ MY ]
            [ DBVAR=quoted_result_variable ]
-           [ DB=database_name ] >
+           [ DB=database_name ]
+           [ DBH=database_handle ] >
 
 =item B<Description>
 
@@ -788,6 +827,10 @@ If you set the MY switch the created variable will be declared using 'my'. Its s
 This is the CIPP internal name of the database for this command. In CGI::CIPP or Apache::CIPP environment this name has to be defined in the appropriate global configuration. In a new.spirit environment this is the name of the database configuration object in dotC<-s>eparated notation.
 
 If DB is ommited the project default database is used.
+
+=item B<     DBH>
+
+Use this option to pass an existing DBI database handle, which should used for this SQL command.  You can't use the DBH option in conjunction with DB.
 
 =item B<Example>
 
@@ -837,6 +880,34 @@ Print  "Hello World" $n times. (note: for n=0 and n=1 you get the same result)
   <?DO>
     Hello World<BR>
   <?/DO COND="--$n > 0">
+
+=back
+
+=head1 COMMAND E<lt>?DUMP>
+
+=over 8
+
+=item B<Type>
+
+Debugging
+
+=item B<Syntax>
+
+ <?DUMP $var_1 ... $var_n>
+
+=item B<Description>
+
+The E<lt>?DUMP> command dumps the contents of the given variables using Data::Dumper, inside of a HTML E<lt>pre>E<lt>/pre> block.
+
+=item B<Parameter>
+
+$var_1 .. $var_n
+
+The contents of this variables are dumped to STDOUT.
+
+=item B<Example>
+
+  <?DUMP $hash_ref $list_ref>
 
 =back
 
@@ -1321,6 +1392,73 @@ We produce a <TEXTAREA> tag with a quoted instance of the variable $text. Note: 
 
   <?HTMLQUOTE VAR="$text" MY HTMLVAR="$html_text">
   <TEXTAREA NAME="text">$html_text</TEXTAREA>
+
+=back
+
+=head1 COMMAND E<lt>?!HTTPHEADER>
+
+=over 8
+
+=item B<Type>
+
+Preprocessor
+
+=item B<Syntax>
+
+ <?!HTTPHEADER [ MY ] VAR=http_header_hash_ref >
+   # Perl Code which modifies the
+   # http_header_hash_ref variable
+ <?/!HTTPHEADER>
+
+=item B<Description>
+
+Use this command, if you want to modify the standard HTTP header response. CIPP generates by default a simple HTTP header of this form:
+
+   Content-type: text/html\n\n
+
+In a new.spirit environment you can define a project wide default HTTP header extension, e.g. ,Pragme: no-cache", or something similar.
+
+If you want to modify the HTTP header at runtime, you can use this command. The E<lt>?!HTTPHEADER> command switches to Perl context, so you write Perl code inside the block. The variable you declared with the VAR option is accessable inside this block and will contain a reference to a hash containing the default HTTP header tags. Your Perl code now can delete, add or modifiy HTTP header tags.
+
+But be careful: because E<lt>?!HTTPHEADER> is a preprocessor command, the position of the E<lt>?!HTTPHEADER> command inside your CIPP program (even if you use it inside an Include), does not indicate the time, on which your HTTP header code is executed.
+
+CIPP inserts the code you write in the E<lt>?!HTTPHEADER> block at the top of the generated CGI code, so it is executed before any other code you wrote in you CIPP program or Include, because the HTTP header must appear before any content.
+
+So it is not possible to access any lexically scoped variables declared outside the E<lt>?!HTTPHEADER> block within the block. Usually you statically add or delete HTTP header fields. Your code may depend on CGI environment variables, or on a result of a SQL query, but that's it. If you want to access configuration variables, you must use the E<lt>?CONFIG> command inside your E<lt>?!HTTPHEADER> block.
+
+=item B<Note>
+
+This command is not implemented for Apache::CIPP and CGI::CIPP environments, but you can use it with new.spirit .
+
+=item B<Parameter>
+
+=item B<     VAR>
+
+The actual HTTP header will be assigned to this variable, as a reference to a hash. This keys of  this hash are the HTTP header tags.
+
+=item B<     MY>
+
+If you set the MY switch the created variable will be declared using 'my'. Its scope reaches to the end of the  E<lt>?!HTTPHEADER> block .
+
+=item B<Example>
+
+A HTTP header is created, which tells proxies how long they may cache the content of the produces HTML page.
+
+  <?!HTTPHEADER MY VAR="$http">
+    # delete a Pragma Tag (may be defined
+    # globally in a new.spirit environment)
+    delete $http->{Pragma};
+
+    # read a global config
+    <?CONFIG NAME="x.global">
+
+    # get cache time
+    my $cache_time = $global::cachable_time || 1200;
+
+    # set Cache-Control header tag
+    $http->{'Cache-Control'} =
+        "max-age=$cache_time, public";
+  <?!/HTTPHEADER>
 
 =back
 
@@ -2030,7 +2168,7 @@ E<lt>?REQUIRE> uses internally the Perl command 'require' to import the module. 
 
 This is the name of the module you want to use. Nested module names are delimited by ::.  This is the name of the module you provided with the E<lt>?MODULE> command.
 
-You may also place a expression here, which results to the name of the module.
+You may also place a scalar variable here, which contains the name of the module. So it is possible to load modules dynamically at runtime.
 
 =item B<Example>
 
@@ -2056,6 +2194,7 @@ SQL
 =item B<Syntax>
 
  <?ROLLBACK [ DB=database_name ]
+            [ DBH=database_handle ]
             [ THROW=exception ] >
 
 =item B<Description>
@@ -2073,6 +2212,10 @@ If you are not in E<lt>?AUTOCOMMIT ON> mode a transaction begins with the first 
 This is the CIPP internal name of the database for this command. In CGI::CIPP or Apache::CIPP environment this name has to be defined in the appropriate global configuration. In a new.spirit environment this is the name of the database configuration object in dotC<-s>eparated notation.
 
 If DB is ommited the project default database is used.
+
+=item B<     DBH>
+
+Use this option to pass an existing DBI database handle, which should used for this SQL command.  You can't use the DBH option in conjunction with DB.
 
 =item B<     THROW>
 
@@ -2253,6 +2396,7 @@ SQL
        [ WINSIZE=number_of_rows_to_fetch ]
        [ RESULT=sql_return_code ]
        [ DB=database_name ]
+       [ DBH=database_handle ]
        [ THROW=exception ] >
        [ MY ]
        [ PROFILE=profile_label ]
@@ -2370,6 +2514,10 @@ Successfully deleted $deleted rows!
 This is the CIPP internal name of the database for this command. In CGI::CIPP or Apache::CIPP environment this name has to be defined in the appropriate global configuration. In a new.spirit environment this is the name of the database configuration object in dotC<-s>eparated notation.
 
 If DB is ommited the project default database is used.
+
+=item B<     DBH>
+
+Use this option to pass an existing DBI database handle, which should used for this SQL command.  You can't use the DBH option in conjunction with DB.
 
 =item B<     THROW>
 

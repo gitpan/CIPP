@@ -1,14 +1,15 @@
 package CIPP::DB_DBI;
 
-$VERSION = "0.62";
-$REVISION = q$Revision: 1.14 $;
+$VERSION = "0.64";
+$REVISION = q$Revision: 1.17 $;
 
 use strict;
 
 #---------------------------------------------------------------------
 # $db = new CIPP::DB_DBI (
 #	db_name	=> internal name of the database / configuration
-#		   (dotted notation is permitted)
+#		   (dotted notation is permitted),
+#	apache_mod => Apache Request Object, if under Apache::CIPP 
 # );
 #---------------------------------------------------------------------
 
@@ -17,7 +18,9 @@ sub new {
 
 	my %par = @_;
 	
-	my $db_name = $par{db_name};
+	my $db_name    = $par{db_name};
+	my $apache_mod = $par{apache_mod};
+	my $dbh_var    = $par{dbh_var};
 
 	# name prefix for lexical variables
 	my $lex;
@@ -45,6 +48,8 @@ sub new {
 			"lex" => "\$$lex",
 			"pkg" => "\$$pkg",
 			"type" => undef,		# single | select,
+			"apache_mod" => $apache_mod,
+			"dbh_var" => $dbh_var,
 	};
 
 	return bless $self, $type;
@@ -52,90 +57,19 @@ sub new {
 
 
 #---------------------------------------------------------------------
-# $code = $db->Open ( 
-#	no_reconnect => 1|0,		# for CIPP Modules
-#	no_config_require => 1|0	# for Apache usage
-# );
+# $db = $db->Init
+#	Initializes Database usage (resets dbh global variable, 
+#	database connections are now made on the fly through
+#	CIPP::Runtime::Open_Database_Connection)
 #---------------------------------------------------------------------
 
-sub Open {
+sub Init {
 	my $self = shift;
 	
-	my %par = @_;
+	my $pkg = $self->{pkg};
 	
-	my $no_config_require = $par{no_config_require};
-	my $no_reconnect      = $par{no_reconnect};
-	
-	my $db_name 	= $self->{db_name};
-	my $pkg 	= $self->{pkg};
-
-	my $code = "use DBI;\n";
-
-	if ( $no_reconnect ) {
-		$code .= "if ( not ${pkg}::dbh and not \$CIPP_Exec::_cipp_in_execute) {\n";
-	}
-	
-	if ( not $no_config_require ) {
-		$code .= qq{do "\$CIPP_Exec::cipp_config_dir/$db_name.db-conf";\n};
-	}
-	
-	$code .=
-		qq[if ( not \$CIPP_Exec::no_db_connect ) { ].
-		qq[eval { ${pkg}::dbh->disconnect };\n].
-		qq[${pkg}::dbh = DBI->connect (\n].
-		qq[${pkg}::data_source,\n].
-		qq[${pkg}::user,\n].
-		qq[${pkg}::password,\n].
-		qq[{ PrintError => 0,\n].
-		qq[  AutoCommit => ${pkg}::autocommit } );\n].
-		qq[die "sql_open\t\$DBI::errstr" if \$DBI::errstr;\n}\n;].
-		qq[die "sql_open\t\dbh is undef" if not ${pkg}::dbh;\n];
-
-	$code .= "push \@CIPP_Exec::cipp_dbh_list, ${pkg}::dbh;\n";
-
-	$code .= "if ( ${pkg}::init ) {\n";
-	$code .= $self->Begin_SQL (
-		throw => "database_initialization",
-		sql => "${pkg}::init"
-	);
-	
-	$code .= "}\n";
-
-	# Hier stand mal Code, um AutoCommit nur dann zu setzen,
-	# wenn es sich *nicht* um MySQL handelt. Das ist unsauber
-	# und entsprechend rausgeflogen. Das Problem muß von
-	# Datenbankkonfigurationsseiten (new.spirit oder *::CIPP)
-	# gelöst werden.
-
-	if ( $no_reconnect ) {
-		$code .= "}";
-	}
-
-	return $code;
+	return "$pkg:\:dbh = undef if not \$CIPP_Exec::no_db_connect;\n";
 }
-
-
-#---------------------------------------------------------------------
-# $code = $db->Close
-#---------------------------------------------------------------------
-
-sub Close {
-	my $self = shift;
-
-	my $db_name	= $self->{db_name};
-	my $pkg 	= $self->{pkg};
-
-	my $code = qq[eval{\n].
-		   qq[\tif ( ${pkg}::dbh and not ${pkg}::dbh->{AutoCommit} ) {\n].
-		   qq[\t\t${pkg}::dbh->rollback;\n].
-		   qq[\t}\n].
-		   qq[\t${pkg}::dbh->disconnect() if ${pkg}::dbh;\n].
-		   qq[\t${pkg}::dbh=undef;\n].
-		   qq[};\n];
-
-	return $code;
-}
-
 
 #---------------------------------------------------------------------
 # $code = $db->Begin_SQL (
@@ -172,7 +106,16 @@ sub Begin_SQL {
 	$sql =~ s/;$//;
 
 	my ($code, $var, $maxrows_cond, $winstart_cmd);
-	$code = '';
+	
+	my $dbh;
+	if ( $self->{dbh_var} ) {
+		$dbh = $self->{dbh_var};
+		$code = "";
+	} else {
+		$dbh = "${pkg}::dbh";
+		$code = $self->Open_Connection_Code ($db_name);
+	}
+
 	$maxrows_cond = '';
 	$winstart_cmd = '';
 	
@@ -192,7 +135,7 @@ sub Begin_SQL {
 		my $var_cnt = scalar @{$var_lref};
 
 		$code .= qq {my \$cipp_sql_code = qq{$sql};\nmy ${lex}_sth = }.
-			 qq {${pkg}::dbh->prepare ( \$cipp_sql_code );}."\n".
+			 qq {${dbh}->prepare ( \$cipp_sql_code );}."\n".
 			 qq {die "$throw\t\$DBI::errstr\n\$cipp_sql_code" if \$DBI::errstr;}. "\n";
 
 		$code .= qq {${lex}_sth->execute($bind_list);}."\n".
@@ -245,13 +188,13 @@ sub Begin_SQL {
 		}
 
 		$self->{type} = "single";
-		$code = "my \$cipp_sql_code = qq{$sql};\n";
+		$code .= "my \$cipp_sql_code = qq{$sql};\n";
 		if ( defined $result ) {
 			$result = "\$".$result if $result !~ /^\$/;
 			$code .= 'my ' if $gen_my;
 			$code .= qq{$result = };
 		}
-		$code .= qq{${pkg}::dbh->do( \$cipp_sql_code $bind_list);}."\n";
+		$code .= qq{${dbh}->do( \$cipp_sql_code $bind_list);}."\n";
 		$code .= qq{die "$throw\t\$DBI::errstr\n\$cipp_sql_code" if defined \$DBI::errstr;}."\n";
 	}
 
@@ -297,11 +240,20 @@ sub Quote_Var {
 	my $db_name	= $self->{db_name};
 	my $pkg		= $self->{pkg};
 
-	my $code = '';
+	my $dbh;
+	my $code;
+	if ( $self->{dbh_var} ) {
+		$dbh = $self->{dbh_var};
+		$code = "";
+	} else {
+		$dbh = "${pkg}::dbh";
+		$code = $self->Open_Connection_Code ($db_name);
+	}
+
 	$code .= qq{my $db_var;\n} if $gen_my;
 	
 	$code .= qq{$var = undef if $var eq '';}."\n";
-	$code .= qq{$db_var = ${pkg}::dbh->quote($var);}."\n";
+	$code .= qq{$db_var = ${dbh}->quote($var);}."\n";
 
 	return $code;
 }
@@ -326,9 +278,18 @@ sub Commit {
 #	my $code  = qq{${pkg}::dbh->commit();}."\n";
 #	$code .= qq{die "$throw\t\$DBI::errstr" if defined \$DBI::errstr;}."\n";
 
-	my $code = '';
+	my $dbh;
+	my $code;
+	if ( $self->{dbh_var} ) {
+		$dbh = $self->{dbh_var};
+		$code = "";
+	} else {
+		$dbh = "${pkg}::dbh";
+		$code = $self->Open_Connection_Code ($db_name);
+	}
+
 	$code .= qq[if ( ${pkg}::data_source !~ /mysql/ ) {\n];
-	$code .= qq{${pkg}::dbh->commit();}."\n";
+	$code .= qq{${dbh}->commit();}."\n";
 	$code .= qq{die "$throw\t\$DBI::errstr" if defined \$DBI::errstr;}."\n";
 	$code .= qq[}\n];
 
@@ -352,7 +313,17 @@ sub Rollback {
 	my $db_name	= $self->{db_name};
 	my $pkg		= $self->{pkg};
 
-	my $code  = qq{${pkg}::dbh->rollback();}."\n";
+	my $dbh;
+	my $code;
+	if ( $self->{dbh_var} ) {
+		$dbh = $self->{dbh_var};
+		$code = "";
+	} else {
+		$dbh = "${pkg}::dbh";
+		$code = $self->Open_Connection_Code ($db_name);
+	}
+
+	$code .= qq{${dbh}->rollback();}."\n";
 	$code .= qq{die "$throw\t\$DBI::errstr" if defined \$DBI::errstr;}."\n";
 
 	return $code;
@@ -377,14 +348,22 @@ sub Autocommit {
 	my $db_name	= $self->{db_name};
 	my $pkg		= $self->{pkg};
 
+	my $dbh;
 	my $code;
+	if ( $self->{dbh_var} ) {
+		$dbh = $self->{dbh_var};
+		$code = "";
+	} else {
+		$dbh = "${pkg}::dbh";
+		$code = $self->Open_Connection_Code ($db_name);
+	}
 
-	$code = qq[if ( ${pkg}::data_source !~ /mysql/ ) {\n];
+	$code .= qq[if ( ${pkg}::data_source !~ /mysql/ ) {\n];
 
 	if ( $status == 0 ) {
-		$code .= qq{${pkg}::dbh->{AutoCommit}=0;}."\n";
+		$code .= qq{${dbh}->{AutoCommit}=0;}."\n";
 	} else {
-		$code .= qq{${pkg}::dbh->{AutoCommit}=1;}."\n";
+		$code .= qq{${dbh}->{AutoCommit}=1;}."\n";
 	}
 
 	$code .= qq[}\n];
@@ -413,9 +392,27 @@ sub Get_DB_Handle {
 
 	$var = "my $var" if $gen_my;
 
-	my $code  = qq{$var = ${pkg}::dbh;}."\n";
+	my $dbh = "${pkg}::dbh";
+
+	my $code;
+	$code  = $self->Open_Connection_Code ($db_name);
+	$code .= qq{$var = ${dbh};}."\n";
 
 	return $code;
+}
+
+sub Open_Connection_Code {
+	my $self = shift;
+	
+	my ($db_name) = @_;
+
+	my $pkg	= $self->{pkg};
+
+	if ( $self->{apache_mod} ) {
+		return 	qq[${pkg}::dbh ||= CIPP::Runtime::Open_Database_Connection ("$db_name", \$cipp_apache_request);\n];
+	} else {
+		return 	qq[${pkg}::dbh ||= CIPP::Runtime::Open_Database_Connection ("$db_name");\n];
+	}
 }
 
 1;
