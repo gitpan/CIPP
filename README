@@ -1,132 +1,133 @@
-CIPP - CgI Perl Preprocessor by Joern Reder
+NAME
+    CIPP - CgI Perl Preprocessor
 
-Copyright (c) 1997-1999 dimedis GmbH, Germany
+SYNOPSIS
+    This module is a preprocessor for the CIPP language. To use
+    it you need either CGI::CIPP, Apache::CIPP or new.spirit.
+    Please download the packages from CPAN (new.spirit is
+    available at http://spirit.dimedis.de/ ) and refer to their
+    documentation for details.
 
-This library ist free software; you can redistribute it and/or
-modify it under the same terms as Perl itself.
+    So this SYNOPSIS is empty... ;)
 
-$Id: README,v 1.1.1.1 1999/05/07 13:37:21 joern Exp $
+DESCRIPTION
+    CIPP is a Perl module for translating CIPP sources to pure
+    Perl programs. CIPP defines a HTML embedding language also
+    called CIPP which has powerful features for CGI and database
+    developers.
 
+    Many standard CGI and database operations (and much more)
+    are covered by CIPP, so the developer does not need to code
+    them again and again.
 
-WHAT IS CIPP?
-
-	CIPP is a perl module for translating CIPP sources to pure perl
-	programs. CIPP defines a HTML embedding language called CIPP
-	which has powerful features for CGI and database developers.
-	Many standard CGI- and database operations (and much more)
-	are covered by CIPP, so the developer has no need to code
-	them again and again.
-
-	CIPP is useful in two ways. One aproach is to let CIPP generate
-	standalone CGI scripts, which only need a little environment to
-	run (some configuration files). If you want to use CIPP in this
-	way: there is a complete development environment called spirit
-	which supports you in many ways, to develop such CGI programms
-	with CIPP. spirit can be downloaded from CPAN, but is only free
-	for non commercial usage.
-	
-	The second is to use the Apache::CIPP_Handler module. This module
-	defines an Apache request handler for CIPP sources, so they will
-	be executed in an Apache environment on the fly, with a two-level
-	cache and great performance. The Apache::CIPP_Handler module
-	is free software.
-
-WHAT DO YOU NEED TO USE CIPP
-
-	CIPP itself needs perl 5.004_01 or better. To use its database
-	interface you must have installed the DBI module (somewhat
-	better than version 0.97) and a DBD-module for your database
-	system.
-	
-	CIPP is a pure perl module, so you need no C compiler.
-
-WHICH PLATFORMS ARE SUPPORTED
-
-	CIPP runs on any Unix system with a perl interpreter.
-	The Win32 platforms are not tested yet very well but most
-	functions should run ok.
-
-DOWNLOAD CIPP
-
-	CIPP (and also spirit mentioned above) can be downloaded
-	from CPAN
-	
-		$CPAN/authors/id/J/JR/JRED
-
-	 or (in future) from the spirit website.
-
-		http://spirit.dimedis.de/
-
-		(this site will start March 1999)
-
-INSTALLING CIPP
-
-	perl Makefile.PL
-	make
-	make install
-
-DOCUMENTATION
-
-	Technical information about the usage of the CIPP.pm module
-	is embedded as POD in CIPP.pm and can be retrieved with
-	"perldoc CIPP". You will not need this information, if you
-	use CIPP either with Apache::CIPP_Handler or spirit.
-	
-	The CIPP language reference manual can be downloaded from CPAN as
-	an extra package. This is usefull, because the format of the
-	documentation is PDF and the uncompressed file has more than 500kb.
-	Also not every modification of CIPP leads to modification of
-	the documentation.
-
-SUPPORTED LANGUAGES
-
-	When the development of CIPP started (spring 1997), there was no
-	idea to publish it, as it was designed for spirit, and spirit
-	was intended for internal use only.
-
-	So the documentation and all CIPP messages are in german language.
-	As soon as possible we want to provide an english version, too.
+    Development started spring 1997 at dimedis GmbH, Germany.
+    It improved over the time while used in several projects.
+    Since early 1999 this module is Open Source software and
+    published on CPAN.
 
 SIMPLE EXAMPLE
+    Here is a (really) simple example of using CIPP in a HTML
+    source to retrieve some information from a database. Think
+    this as a HTML page which is "executed" on the fly by
+    Apache::CIPP or CGI::CIPP. If you use new.spirit the source
+    will be translated to a standalone CGI program.
+    
+    Note: there is no code to connect to the database. This is
+    done implicitely. The configuration is taken from Apache
+    or from a global configuration file.
+    
+      # print table of users who match the given parameter
+  
+      <?INTERFACE INPUT="$search_name">
 
-	Here is a simple example of using CIPP in an HTML source to
-	retrieve some information from a database. Think this as a
-	HTML page which will be executed on the fly in an Apache
-	environment or will be converted to a standalone CGI script.
-	
-	Note: there is no code to connect to the database. This is
-	done implicitely. The configuration is taken from Apache
-	or from an external configuration file, if you use the CGI
-	standalone version of CIPP.
-	
-	<HTML>
-	<HEAD><TITLE>tiny litte CIPP example</TITLE></HEAD>
-	<BODY>
-	<H1>tiny litte CIPP example</H1>
-	<P>
-	
-	<TABLE BORDER=1>
-	<TR><TD>Name</TD><TD>Adress</TD><TD>Phone</TD></TR>
-	
-	<?SQL SQL="select name, adress, phone from people"
-	      MY VAR="$n, $a, $p">
-	  <TR><TD>$n</TD><TD>$a</TD><TD>$p</TD></TR>
-	<?/SQL>
-	</TABLE>
-	
-	</BODY>
-	</HTML>
+      <HTML>
+      <HEAD><TITLE>tiny litte CIPP example</TITLE></HEAD>
+      <BODY>
+      <H1>Users matching '$search_name'</H1>
+      <P>
+
+      <TABLE BORDER=1>
+      <TR><TD>Name</TD><TD>Adress</TD><TD>Phone</TD></TR>
+      <?SQL SQL="select name, adress, phone
+                 from   people
+                 where  name like '%' || ? || '%'"
+            PARAMS="$search_name"
+            MY VAR="$n, $a, $p">
+        <TR><TD>$n</TD><TD>$a</TD><TD>$p</TD></TR>
+      <?/SQL>
+      </TABLE>
+
+      </BODY>
+      </HTML>
+
+PREREQUISITES
+    CIPP itself needs perl 5.004_04 or better. To use its database
+    interface you need the DBI module (somewhat better than version
+    0.97) and a DBD-module for your database system.
+    
+    CIPP is a pure Perl module, so you need no C compiler.
+
+WHICH PLATFORMS ARE SUPPORTED
+    CIPP runs on any Unix system with a perl interpreter.
+    Also you can use it under Win32, it is widely tested with
+    the ActiveState Perl distribution and also in production
+    usage on this platform.
+
+    There is special Apache webserver support through the module
+    Apache::CIPP. You can use CIPP on any CGI capable webserver
+    using either CGI::CIPP or new.spirit.
+
+DOWNLOAD CIPP
+    CIPP and friends can be downloaded from CPAN
+    
+        $CPAN/modules/by-authors/id/J/JR/JRED/
+
+INSTALLING CIPP
+    perl Makefile.PL
+    make
+    make test
+    make install
+
+DOCUMENTATION
+    There is some technical information about the interface
+    of CIPP embedded as POD in CIPP.pm. This section is in
+    german language only. But usually you need not to care about
+    the internal mechanisms of CIPP.
+
+    The CIPP language reference manual can be downloaded from CPAN
+    as a extra package. This is usefull, because the format of the
+    documentation is PDF and the uncompressed file has more than
+    500kb. Also not every modification of CIPP leads to modification
+    of the documentation.
+
+    The CIPP::Manual module is part of this distribution. It is
+    a excerpt of the english PDF documention containing only the
+    command reference chapter. You can read this manual using perldoc:
+
+      perldoc CIPP::Manual
+
+SUPPORTED LANGUAGES
+    When CIPP development started early 1997 it was intended to be
+    a tool for internal usage only. So the whole documentation was
+    written in german.
+
+    Since September 1999 CIPP has multilanguage support for its
+    error messages. Also the documentation has been translated
+    to english. The german documentation is not longer maintained.
 
 BUG REPORTING
+    Please send any bug reports or comments to
+    
+        cipp@dimedis.de
 
-	Please send any bug reports or comments to
-	
-		cipp-bug@dimedis.de
-	
-	or use the bug report formular on the spirit website
-	
-		http://spirit.dimedis.de/
+AUTHOR
+    Joern Reder <joern@dimedis.de>
 
-		(this site will start March 1999)
+COPYRIGHT
+    Copyright (C) 1999 by Joern Reder and
+    dimedis GmbH, 50170 Koeln, Germany
 
-	You can speak german with us, but we understand english, too ;)
+    All Rights Reserved.
+
+    This library is free software; you can redistribute it and/or
+    modify it under the same terms as Perl itself.

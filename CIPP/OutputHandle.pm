@@ -161,28 +161,3 @@ sub Write {
 }
 
 1;
-__END__
-
-=head1 NAME
-
-CIPP::OutputHandle - Output stream abstraction (file and memory I/O)
-
-=head1 DESCRIPTION
-
-This module abstracts from an output target. So it is possible to
-write transparently to a file, filehandle or into memory.
-
-=head1 AUTHOR
-
-Jörn Reder, joern@dimedis.de
-
-=head1 COPYRIGHT
-
-Copyright 1997-1999 dimedis GmbH, All Rights Reserved
-
-This library is free software; you can redistribute it and/or modify
-it under the same terms as Perl itself.
-
-=head1 SEE ALSO
-
-perl(1), CIPP (3pm)

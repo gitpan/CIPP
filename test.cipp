@@ -1,0 +1,10 @@
+<HTML>
+<HEAD><TITLE>CIPP-Apache-Test</TITLE></HEAD>
+<BODY>
+this is a simple test
+<?SQL SQL="select num from foo"
+      MY VAR="$num">
+  num=$num
+<?/SQL>
+</BODY>
+</HTML>

@@ -1,12 +1,13 @@
 package CIPP;
 
-#$Id: CIPP.pm,v 1.16 1999/07/07 09:16:52 joern Exp $
+#$Id: CIPP.pm,v 1.20 1999/10/02 13:49:16 joern Exp $
 
-$VERSION = "2.0.9";
-$REVISION = q$Revision: 1.16 $; 
+$VERSION = "2.11";
+$REVISION = q$Revision: 1.20 $; 
 
 use strict;
 use Config;
+use FileHandle;
 use File::Basename;
 use CIPP::InputHandle;
 use CIPP::OutputHandle;
@@ -100,10 +101,14 @@ sub new {
 	my ($source, $target, $project_hash, $database_hash, $mime_type,
 	    $default_db, $call_path, $skip_header_line, $debugging,
 	    $result_type, $use_strict, $persistent, $apache_mod,
-	    $project, $use_inc_cache) = @_;
+	    $project, $use_inc_cache, $lang) = @_;
 
 	# Defaults setzen
 	$result_type ||= 'cipp';
+	$lang ||= 'EN',
+
+	# Spracheinstellungen laden
+	do "CIPP/Lang$lang.pm";
 
 	my $perl_code = "";
 	my $s_handle = new CIPP::InputHandle ($source);
@@ -161,7 +166,8 @@ sub new {
 			"apache_mod" => $apache_mod,
 			"project" => $project,
 			"use_inc_cache" => $use_inc_cache,
-			"perl_interpreter_path" => $Config{'perlpath'}
+			"perl_interpreter_path" => $Config{'perlpath'},
+			"lang" => $lang
 	};
 
 	# Wir gehen mal davon aus, dass alles geklappt hat, pruefen
@@ -371,6 +377,24 @@ sub Error {
 	$self->{preprocess_status} = 0;
 }
 
+sub ErrorLang {
+	my $self = shift;
+	
+	my ($tag, $key, $par_lref, $line) = @_;
+	
+	my $message;
+	if ( $par_lref ) {
+		$message = sprintf ($CIPP::Lang::msg{$key}, @{$par_lref});
+	} else {
+		$message = $CIPP::Lang::msg{$key};
+	}
+	
+	$message ||= "ERROR MESSAGE IS MISSING: $key";
+	
+	$self->Error ($tag, $message, $line);
+}
+
+
 sub Check_Options {
 	my $self = shift;
 	return undef if ! $self->{init_status};
@@ -428,13 +452,13 @@ sub Check_Options {
 		$must_options =~ s/\s$//;
 		$must_options =~ s/\s/,/g;
 		$must_options =~ tr/a-z/A-Z/;
-		$self->Error ($tag, "fehlende Optionen: $must_options");
+		$self->ErrorLang ($tag, 'missing_options', [$must_options]);
 	}
 	if ( $illegal ne '' ) {
 		$valid_options =~ s/\s$//;
 		$valid_options =~ s/\s/,/g;
 		$illegal =~ tr/a-z/A-Z/;
-		$self->Error ($tag, "illegale Optionen: $illegal");
+		$self->ErrorLang ($tag, 'illegal_options', [$illegal]);
 	}
 
 	return 0;
@@ -465,7 +489,7 @@ sub Check_Nesting {
 			# Tag vorher (index ist -1), oder haben weder ein IF
 			# noch ein ELSIF vorher (ist doch logisch, oder? :)
 
-			$self->Error ("ELSE", "ELSE ohne IF oder ELSIF");
+			$self->ErrorLang ("ELSE", 'else_alone');
 			return 0;
 		}
 
@@ -482,7 +506,7 @@ sub Check_Nesting {
 			# Tag vorher (index ist -1), oder haben weder ein IF
 			# noch ein ELSIF vorher (ist doch logisch, oder? :)
 
-			$self->Error ("ELSIF", "ELSIF ohne IF oder ELSIF");
+			$self->ErrorLang ("ELSIF", 'else_alone');
 			return 0;
 		}
                 
@@ -502,7 +526,7 @@ sub Check_Nesting {
 
 		if ( -1 == index ($CIPP::cipp_multi_tags, "|".$tag."|") ) {
 			# nee, is verboooten!
-			$self->Error ("/$tag", "ist nicht erlaubt");
+			$self->ErrorLang ("/$tag", 'no_block_command');
 			return 0;
 		}
 
@@ -518,7 +542,7 @@ sub Check_Nesting {
 			$last_tag =~ tr/a-z/A-Z/;
 			$tag = "/$tag";
 			$tag =~ tr/a-z/A-Z/;
-			$self->Error ($tag, "$tag anstelle von /$last_tag");
+			$self->ErrorLang ($tag, 'wrong_nesting', $tag, ["/$last_tag"]);
 
 			return 0;
 		}
@@ -528,8 +552,7 @@ sub Check_Nesting {
 
 			$tag = "/$tag";
 			$tag =~ tr/a-z/A-Z/;
-			$self->Error($tag,
-			  "wird geschlossen, ohne dazugehoeriges Start-Tag");
+			$self->ErrorLang($tag, 'close_without_start');
 
 			return 0;
 		}
@@ -802,7 +825,7 @@ sub Preprocess {
 			# Pruefen, ob abschliessendes > ueberhaupt gefunden
 
 			if ( ! $found_end_of_tag ) {
-				$self->Error($tag, "> nicht gefunden");
+				$self->ErrorLang($tag, 'gt_not_found');
 				last;		# dann raus hier, mehr
 						# kann nicht getan werden
 			}
@@ -839,11 +862,11 @@ sub Preprocess {
 
 			if ( -1 == $opt ) {
 				$tag = "/".$tag if $end_tag;
-				$self->Error
-				   ($tag, "Syntaxfehler bei den Tag-Parametern");
+				$self->ErrorLang
+				   ($tag, 'tag_par_syntax_error');
 			} elsif ( -2 == $opt ) {
 				$tag = "/".$tag if $end_tag;
-				$self->Error ($tag, "Doppelte Tag-Parameter");
+				$self->ErrorLang ($tag, 'double_tag_parameter');
 			} elsif ( $nesting_ok ) {
 				# OK, wir haben keinen Syntaxfehler bei den
 				# Optionen und keinen Schachtelungsfehler,
@@ -885,10 +908,12 @@ sub Preprocess {
 	if ( -1 != $self->{nest_index} ) {
 		my $i;
 		for ($i = 0; $i <= $self->{nest_index}; ++$i) {
-			$self->Error (
+			$self->ErrorLang (
 				$self->{nest_tag}[$i],
-				"wird nicht geschlossen",
-				$self->{nest_tag_line}[$i]);
+				'close_missing',
+				undef,
+				$self->{nest_tag_line}[$i]
+			);
 		}
 	} else {
 		# Code fuer Header / Footer und Datenbank generieren
@@ -1172,8 +1197,7 @@ sub Process_Var {
 
 	if ( $$opt{name} =~ /^[\@\%]/ ) {
 		if ( defined $$opt{default} ) {
-			$self->Error ("VAR", "DEFAULT kann nur bei skalaren ".
-			"Variablen verwendet werden");
+			$self->ErrorLang ("VAR", 'var_default_scalar');
 			return 0;
 		}
 		$self->{var_quote} = 0;
@@ -1186,7 +1210,7 @@ sub Process_Var {
 		if ( $$opt{type} eq "num" ) {
 			$self->{var_quote} = 0;
 		} else {
-			$self->Error ("VAR", "Ungültiger TYPE");
+			$self->ErrorLang ("VAR", 'var_invalid_type');
 			return 0;
 		}
 	}
@@ -1230,10 +1254,9 @@ sub Process_Include {
 	# Pruefen, ob rekursiver Aufruf vorliegt
 
 	if ( $self->{call_path} =~ /:$$opt{name}\[/ ) {
-		$self->Error (
-			"INCLUDE",
-			$$opt{name}." wird rekursiv angewendet. ".
-			"Aufrufpfad: ".$self->{call_path}
+		$self->ErrorLang (
+			"INCLUDE", 'include_recursive',
+			[ $$opt{name}, $self->{call_path} ]
 		);
 		return 1;
 	}
@@ -1265,12 +1288,12 @@ sub Process_Include {
 	my $macro_file = $self->Resolve_Object_Source ($name, 'cipp-inc');
 
 	if ( ! defined $macro_file  ) {
-		$self->Error ("INCLUDE", "Konnte Objekt '$name' nicht auflösen.");
+		$self->ErrorLang ("INCLUDE", 'object_not_found', [$name]);
 		return 1;
 	}
 
 	if ( ! -r $macro_file ) {
-		$self->Error ("INCLUDE", "Kann '$name' nicht finden. Datei: $macro_file, $macro_file");
+		$self->ErrorLang ("INCLUDE", 'include_not_readable', [$name, $macro_file]);
 		return 1;
 	}
 
@@ -1301,10 +1324,11 @@ sub Process_Include {
 			 $self->{skip_header_line}, $self->{debugging},
 			 $self->{result_type}, $self->{use_strict},
 			 $self->{persistent}, $self->{apache_mod},
-			 $self->{project}, $self->{use_inc_cache});
+			 $self->{project}, $self->{use_inc_cache},
+			 $self->{lang});
 
 		if ( ! $MACRO->Get_Init_Status ) {
-			$self->Error ("INCLUDE", "Interner Fehler bei CIPP Init");
+			$self->ErrorLang ("INCLUDE", 'include_cipp_init');
 			return 1;
 		}
 
@@ -1329,11 +1353,11 @@ sub Process_Include {
 	# doch welche angegeben?
 	
 	if ( $MACRO->{inc_noinput} and scalar(keys %{$opt}) ) {
-		$self->Error ("INCLUDE", "Es dürfen keine Parameter an $name übergeben werden");
+		$self->ErrorLang ("INCLUDE", 'include_no_in_par', [$name]);
 		return 1;
 	}
 	if ( $MACRO->{inc_nooutput} and scalar(keys %{$var_output}) ) {
-		$self->Error ("INCLUDE", "$name hat keine Ausgabeparameter");
+		$self->ErrorLang ("INCLUDE", 'include_no_out_par', [$name]);
 		return 1;
 	}
 	
@@ -1510,35 +1534,35 @@ sub Process_Include {
 	if ( scalar(@missing_params) ) {
 		my $i;
 		foreach $i (@missing_params) {
-			$self->Error ("INCLUDE", "Fehlender Eingabeparameter: $i");
+			$self->ErrorLang ("INCLUDE", 'include_missing_in_par', [$i]);
 		}
 	}
 
 	if ( scalar(@unknown_params) ) {
 		my $i;
 		foreach $i (@unknown_params) {
-			$self->Error ("INCLUDE", "Unbekannter Eingabeparameter: $i");
+			$self->ErrorLang ("INCLUDE", 'include_unknown_in_par', [$i]);
 		}
 	}
 
 	if ( scalar(@unknown_output) ) {
 		my $i;
 		foreach $i (@unknown_output) {
-			$self->Error ("INCLUDE", "Unbekannter Ausgabeparameter: $i");
+			$self->ErrorLang ("INCLUDE", 'include_unknown_out_par', [$i]);
 		}
 	}
 
 	if ( scalar(@wrong_types) ) {
 		my $i;
 		foreach $i (@wrong_types) {
-			$self->Error ("INCLUDE", "Falscher Ausgabeparametertyp: $i");
+			$self->ErrorLang ("INCLUDE", 'include_wrong_out_type', [$i]);
 		}
 	}
 
 	if ( scalar(@equal_names) ) {
 		my $i;
 		foreach $i (@equal_names) {
-			$self->Error ("INCLUDE", "Ausgabevariable heißt wie Ausgabeparameter: $i");
+			$self->ErrorLang ("INCLUDE", 'include_out_var_eq_par', [$i]);
 		}
 	}
 
@@ -1623,7 +1647,7 @@ sub Process_Sql {
 	}
 
 	if ( defined $self->{driver_used} ) {
-		$self->Error ("SQL", "Verschachtelung von SQL nicht erlaubt");
+		$self->ErrorLang ("SQL", 'sql_nest');
 		return 1;
 	}
 
@@ -1633,14 +1657,12 @@ sub Process_Sql {
 		$opt) || return 1;
 
 	if ( defined $$opt{winstart} ^ defined $$opt{winsize} ) {
-		$self->Error ("SQL", "WINSTART und WINSIZE müssen immer ".
-			      "gemeinsam angegeben werden");
+		$self->ErrorLang ("SQL", 'sql_winstart_winsize');
 		return 1;
 	}
 
 	if ( defined $$opt{winstart} && defined $$opt{maxrows} ) {
-		$self->Error ("SQL", "MAXROWS kann nicht in Kombination mit ".
-			      "WINSTART und WINSIZE verwendet werden");
+		$self->ErrorLang ("SQL", 'sql_maxrows');
 		return 1;
 	}
 
@@ -1649,15 +1671,17 @@ sub Process_Sql {
 	$self->{used_databases}{$self->{project}.".__DEFAULT__"} = 1 if ! defined $$opt{db};
 
 	if ( ! defined $db ) {
-		$self->Error ("SQL", "es ist keine Default DB definiert");
+		$self->ErrorLang ("SQL", 'sql_no_default_db');
 		return 1;
 	}
 
 	my $driver = $self->{db_driver}{$db};
+#	print STDERR "driver='$driver'\n";
 	$driver =~ s/CIPP_/CIPP::/;
+#	print STDERR "driver='$driver'\n";
 
-	if ( ! defined $driver ) {
-		$self->Error ("SQL", "Datenbank '$db' unbekannt");
+	if ( $driver eq '' ) {
+		$self->ErrorLang ("SQL", 'sql_unknown_database', [$db]);
 		return 1;
 	}
 
@@ -1680,7 +1704,7 @@ sub Process_Sql {
 	}
 	
 	$$opt{throw} ||= "sql";
-
+#	print STDERR "driver='$driver'\n";
 	$self->{driver_used} = $driver->new($db);
 
 	$self->{output}->Write (
@@ -1704,15 +1728,15 @@ sub Process_Commit {
 	$self->{used_databases}{$self->{project}.".__DEFAULT__"} = 1 if ! defined $$opt{db};
 
 	if ( ! defined $db ) {
-		$self->Error ("COMMIT", "es ist keine Default DB definiert");
+		$self->ErrorLang ("COMMIT", 'sql_no_default_db');
 		return 1;
 	}
 
 	my $driver = $self->{db_driver}{$db};
 	$driver =~ s/CIPP_/CIPP::/;
 	
-	if ( ! defined $driver ) {
-		$self->Error ("COMMIT", "Datenbank '$db' unbekannt");
+	if ( $driver eq '' ) {
+		$self->ErrorLang ("COMMIT", 'sql_unknown_database', [$db]);
 		return 1;
 	}
 
@@ -1736,15 +1760,15 @@ sub Process_Rollback {
 	$self->{used_databases}{$self->{project}.".__DEFAULT__"} = 1 if ! defined $$opt{db};
 
 	if ( ! defined $db ) {
-		$self->Error ("ROLLBACK", "es ist keine Default DB definiert");
+		$self->ErrorLang ("ROLLBACK", 'sql_no_default_db');
 		return 1;
 	}
 
 	my $driver = $self->{db_driver}{$db};
 	$driver =~ s/CIPP_/CIPP::/;
 
-	if ( ! defined $driver ) {
-		$self->Error ("ROLLBACK", "Datenbank '$db' unbekannt");
+	if ( $driver eq '' ) {
+		$self->ErrorLang ("ROLLBACK", 'sql_unknown_database', [$db]);
 		return 1;
 	}
 
@@ -1769,20 +1793,20 @@ sub Process_Autocommit {
 	$self->{used_databases}{$self->{project}.".__DEFAULT__"} = 1 if ! defined $$opt{db};
 
 	if ( ! defined $db ) {
-		$self->Error ("AUTOCOMMIT", "es ist keine Default DB definiert");
+		$self->ErrorLang ("AUTOCOMMIT", 'sql_no_default_db');
 		return 1;
 	}
 
 	my $driver = $self->{db_driver}{$db};
 	$driver =~ s/CIPP_/CIPP::/;
 
-	if ( ! defined $driver ) {
-		$self->Error ("AUTOCOMMIT", "Datenbank '$db' unbekannt");
+	if ( $driver eq '' ) {
+		$self->ErrorLang ("AUTOCOMMIT", 'sql_unknown_database', [$db]);
 		return 1;
 	}
 
 	if ( !defined $$opt{on} && !defined $$opt{off} ) {
-		$self->Error ("AUTOCOMMIT", "weder ON noch OFF angegeben");
+		$self->ErrorLang ("AUTOCOMMIT", 'autocommit_on_off');
 		return 1;
 	}
 
@@ -1810,15 +1834,15 @@ sub Process_Getdbhandle {
 	$self->{used_databases}{$self->{project}.".__DEFAULT__"} = 1 if ! defined $$opt{db};
 
 	if ( ! defined $db ) {
-		$self->Error ("GETDBHANDLE", "es ist keine Default DB definiert");
+		$self->ErrorLang ("GETDBHANDLE", 'sql_no_default_db');
 		return 1;
 	}
 
 	my $driver = $self->{db_driver}{$db};
 	$driver =~ s/CIPP_/CIPP::/;
 
-	if ( ! defined $driver ) {
-		$self->Error ("GETDBHANDLE", "Datenbank '$db' unbekannt");
+	if ( $driver eq '' ) {
+		$self->ErrorLang ("GETDBHANDLE", 'sql_unknown_database', [$db]);
 		return 1;
 	}
 
@@ -1844,11 +1868,11 @@ sub Process_Execute {
 	my ($opt, $end_tag) = @_;
 
 	if ( $self->{apache_mod} ) {
-		$self->Error ("EXECUTE", "Der EXECUTE Befehl wird z.Zt. im Apache-Modus nicht unterstützt");
+		$self->ErrorLang ("EXECUTE", 'execute_no_apache' );
 		return 1;
 	}
 
-	$self->Error ("EXECUTE", "Der EXECUTE Befehl ist in dieser Version nicht implementiert");
+	$self->ErrorLang ("EXECUTE", 'execute_disabled');
 	return 1;
 
 	$self->Check_Options ("EXECUTE", "NAME", "*", $opt);
@@ -1857,12 +1881,11 @@ sub Process_Execute {
 	delete $$opt{name};
 
 	if ( (!defined $$opt{var}) && (!defined $$opt{filename}) ) {
-		$self->Error ("EXECUTE", "VAR oder FILENAME muss angegeben werden");
+		$self->ErrorLang ("EXECUTE", 'execute_missing_var_fn');
 		return 1;
 	}
 	if ( defined $$opt{var} && defined $$opt{filename} ) {
-		$self->Error ("EXECUTE", "VAR und FILENAME dürfen nicht zusammen".
-			      " angegeben werden");
+		$self->ErrorLang ("EXECUTE", 'execute_comb_var_fn');
 		return 1;
 	}
 
@@ -1929,12 +1952,16 @@ sub Process_Dbquote {
 	$self->{used_databases}{$db} = 1 if defined $db;
 	$self->{used_databases}{$self->{project}.".__DEFAULT__"} = 1 if ! defined $$opt{db};
 
-	if ( ! defined $db ) {
-		$self->Error ("AUTOCOMMIT", "es ist keine Default DB definiert");
+	if ( $db eq '' ) {
+		$self->ErrorLang("AUTOCOMMIT", 'sql_no_default_db');
 		return 1;
 	}
 
 	my $driver = $self->{db_driver}{$db};
+	if ( $driver eq '' ) {
+		$self->ErrorLang ("AUTOCOMMIT", 'sql_unknown_database', [$db]);
+		return 1;
+	}
 	$driver =~ s/CIPP_/CIPP::/;
 
 	my $dh = $driver->new ($db);
@@ -2104,7 +2131,7 @@ sub Process_My {
 	my ($opt, $end_tag) = @_;
 
 	if ( ! defined $opt ) {
-		$self->Error ("MY", "keine Parameter angegeben");
+		$self->ErrorLang ("MY", 'parameter_missing');
 		return 1;
 	}
 
@@ -2120,7 +2147,7 @@ sub Process_My {
 	my $error = 0;
 	foreach $var (keys %{$opt}) {
 		if ( $var !~ /^[\$\%\@\*]/ ) {
-			$self->Error ("MY", "$var ist ein Bareword");
+			$self->ErrorLang ("MY", 'my_unknown_type', [$var]);
 			$error = 1;
 		}
 	}
@@ -2202,11 +2229,11 @@ sub Process_Config {
 		$name =~ s/^[^\.]+//;
 		$name = $self->{project}.$name;
 		if ( ! defined $self->Object_Exists($name) ) {
-			$self->Error("CONFIG", "Objekt '$name' existiert nicht");
+			$self->ErrorLang ("CONFIG", 'object_not_found', [$name]);
 			return 1;
 		}
 		if ( $self->Get_Object_Type ($name) ne 'cipp-config' ) {
-			$self->Error("CONFIG", "Objekt '$name' ist kein Config-Objekt");
+			$self->ErrorLang("CONFIG", 'config_no_config', [$name]);
 			return 1;
 		}
 		$self->{used_configs}->{$name} = 1;
@@ -2339,7 +2366,7 @@ sub Process_Geturl {
 	
 	if ( not $runtime and not $apache_mod ) {
 		if ( ! defined $self->Object_Exists($name) ) {
-			$self->Error("GETURL", "Objekt '$name' existiert nicht");
+			$self->ErrorLang ("GETURL", 'object_not_found', [$name]);
 			return 1;
 		}
 	}
@@ -2352,7 +2379,7 @@ sub Process_Geturl {
 	if ( not $runtime and not $apache_mod ) {
 		$object_url = $self->Get_Object_URL ($name);
 		if ( ! defined $object_url ) {
-			$self->Error("GETURL", "Objekt '$name' hat keine URL");
+			$self->ErrorLang ("GETURL", 'object_has_no_url', [$name]);
 			return 1;
 		}
 		$self->{output}->Write ("${my_cmd}$$opt{urlvar}=qq{$object_url}");
@@ -2404,8 +2431,7 @@ sub Process_Geturl {
 	if ( not $runtime and not $apache_mod ) {
 		my $target_object_type = $self->Get_Object_Type ($name);
 		if ( $target_object_type ne 'cipp' && (scalar @val_list) ) {
-			$self->Error ("GETURL", "Es können nur Parameter an ein ".
-				      "CGI-Objekt übergeben werden");
+			$self->ErrorLang ("GETURL", 'geturl_params_cgi_only');
 			return 1;
 		}
 	}
@@ -2479,12 +2505,12 @@ sub Process_Form {
 	delete $$opt{action};
 
 	if ( ! defined $self->Object_Exists ($name) ) {
-		$self->Error ("FORM", "Object '$name' exisitiert nicht");
+		$self->ErrorLang ("FORM", 'object_not_found', [$name]);
 		return 1;
 	}
 
 	if ( not $self->{apache_mod} and $self->Get_Object_Type ($name) ne 'cipp' ) {
-		$self->Error ("FORM", "Object '$name' ist kein CGI Objekt");
+		$self->ErrorLang ("FORM", 'form_no_cgi', [$name]);
 		return 1;
 	}
 
@@ -2529,12 +2555,12 @@ sub Process_Img {
 	my $object_url;
 	if ( not $self->{apache_mod} ) {
 		if ( ! defined $self->Object_Exists ($name) ) {
-			$self->Error ("IMG", "Object '$name' exisitiert nicht");
+			$self->ErrorLang ("IMG", 'object_not_found', [$name]);
 			return 1;
 		}
 
 		if ( $self->Get_Object_Type ($name) ne 'cipp-img' ) {
-			$self->Error ("IMG", "Object '$name' ist kein Bild-Objekt");
+			$self->ErrorLang ("IMG", 'img_no_image', [$name]);
 			return 1;
 		}
 		$object_url = $self->Get_Object_URL ($name);
@@ -2590,14 +2616,14 @@ sub Process_A {
 	}
 
 	if ( ! defined $self->Object_Exists ($name) ) {
-		$self->Error ("A", "Object '$name' exisitiert nicht");
+		$self->ErrorLang ("A", 'object_not_found', [$name]);
 		return 1;
 	}
 
 	my $object_url = $self->Get_Object_URL ($name);
 
 	if ( ! defined $object_url ) {
-		$self->Error ("FORM", "Object '$name' hat keine URL");
+		$self->ErrorLang ("FORM", 'object_has_no_url', [$name]);
 		return 1;
 	}
 
@@ -2729,7 +2755,7 @@ sub Process_Hiddenfields {
 	# nun noch ein paar Syntaxchecks
 
 	if ( !(scalar @val_list) ) {
-		$self->Error ("HIDDENFIELDS", "Keine Parameter angegeben");
+		$self->ErrorLang ("HIDDENFIELDS", 'parameter_missing');
 		return 1;
 	}
 
@@ -2971,19 +2997,17 @@ sub Process_Incinterface {
 	}
 		
 	if ( @untyped ) {
-		$self->Error (
+		$self->ErrorLang (
 			"INCINTERFACE",
-			"Folgende Parameter sind nicht typisiert: ".
-			(join(", ", @untyped))
+			'incint_no_types', [join(", ", @untyped)]
 		);
 		return 1;
 	}
 
 	if ( @unknown ) {
-		$self->Error (
+		$self->ErrorLang (
 			"INCINTERFACE",
-			"Folgende NOQUOTE Variablen sind ".
-			"nicht bekannt: ".(join(", ", @unknown))
+			'incint_unknown', [join(", ", @unknown)]
 		);
 		return 1;
 	}
@@ -3029,9 +3053,9 @@ sub Process_Getparam {
 	}
 
 	if ( $var !~ /^[\$\@]/ ) {
-		$self->Error (
+		$self->ErrorLang (
 			"GETPARAM",
-			"Die Variable '$var' ist nicht mit \$ oder \@ typisiert!"
+			'getparam_no_type', [$var]
 		);
 		return 1;
 	}
@@ -3059,9 +3083,9 @@ sub Process_Getparamlist {
 	my $var = $$opt{var};
 
 	if ( $var !~ /^[\@]/ ) {
-		$self->Error (
+		$self->ErrorLang (
 			"GETPARAMLIST",
-			"Die Variable '$var' muß eine Listenvariable sein!"
+			'getparamlist_no_array', [$var]
 		);
 		return 1;
 	}
@@ -3289,9 +3313,9 @@ sub Get_Object_URL {
 		my $ext = $self->Get_Image_Info($object);
 
 		if ( ! defined $ext ) {
-			$self->Error (
+			$self->ErrorLang (
 				"GETURL",
-				"Konnte Bildobjekt '$object' nicht auflösen");
+				'object_not_found', [$object]);
 			return undef;
 		}
 
@@ -3519,9 +3543,11 @@ software.
 
 =head1 CIPP LANGUAGE REFERENCE
 
-The documentation of the language defined by CIPP can be
+Use 'perldoc CIPP::Manual' for a language reference. There also
+exists a PDF document with some additional chapters about CIPP
+language basics and configuration hints. This file can be
 downloaded from CPAN as an extra package. This is usefull, because
-the format of the documentation is actually PDF and the file has more
+the format of the documentation is PDF and the file has more
 than 500kb. Also not every modification of CIPP leads to modification
 of the documentation.
 
@@ -3534,8 +3560,8 @@ only. We will provide english documentation in future.
 		  $mime_type, $default_db, $call_path,
 		  $skip_header_line, $debugging
 		  [, $result_type ] [, $use_strict] [, $reintrant]
-		  [, $apache_mod ], [, $spirit_project ]
-		  [, $use_inc_cache ] );
+		  [, $apache_mod ] [, $spirit_project ]
+		  [, $use_inc_cache ] [, $lang ] );
 	$input		Dateiname oder Filehandle-Referenz oder
 			Scalar-Referenz fuer Output
 	$output		Dateiname oder Filehandle-Referenz oder
@@ -3575,6 +3601,7 @@ only. We will provide english documentation in future.
 	$project	Das Project, in dem sich das zu bearbeitende
 			Objekt befindet.
 	$use_inc_cache	Soll der Include Cache verwendet werden?
+	$lang		Sprache für Fehlermeldungen EN=Englisch, DE=Deutsch
 
  $status = $CIPP->Get_Init_Status();
 	liefert	0 : Fehler beim Initialisieren
