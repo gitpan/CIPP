@@ -1,9 +1,12 @@
-$Id: Changes,v 1.30 2003/08/07 07:59:33 joern Exp $
+$Id: Changes,v 1.22 2003/08/07 08:09:33 joern Exp $
 
-Revision history for Perl extension CIPP.
-
-2.50 Thu Aug 07 2003, joern
-	Features:
+2.9.23 Thu Aug 07 2003, joern
+	Bugfixes:
+	- Recursive usage of Includes resulted in endless loop.
+	  Now the compiler detects a recursion and throws an
+	  error message (probably future releases may support
+	  recursive Includes).
+	- This was parsed without error: <?GETURL ... <br> >
 	- <?SQL>: some special handling to PARAMS of non-SELECT
 	  statements applied. Empty variables will be converted
 	  to undef (NULL) before they're passed to DBI. This
@@ -11,415 +14,193 @@ Revision history for Perl extension CIPP.
 	  database systems (e.g. Oracle converts empty strings
 	  to NULL always, while MySQL handles them as-is).
 
-2.49 Thu Jul 17 2003, joern
-	Bugfix:
-	- <?EXIT> didn't close open database connections
-
-2.48 Fri Jun 6  2003, joern
-	Bugfix:
-	- An Include included inside a <?HTML> block by a cipp/dynamic
-	  program which includes didn't generate any output in
-	  the standard HTML context.
-
-2.47 Wed Aug 28 2002, joern
+2.9.22
 	Features:
-	- <?SUB> accepts the new CIPP3 option IMPORT, as a no-op.
-	  This just enables the developer to use this CIPP3
-	  feature even for programs, which must compile under
-	  CIPP2 as well.
+	- new command <?SWITCHDB>...<?/SWITCHDB> which switches
+	  the default database inside the correspoding block.
+	  Nesting is possible, also this switiching exception
+	  safe.
+	- new project configuration parameter: add_prod_dir.
+	  Enables searching for includes, libs and configs in
+	  external CIPP3 projects. Needs new.spirit 2.1.17.
 
-2.46 Mon Jun 17 2002, joern
+2.9.21
+	Bugfixes:
+	- added a timeout the Perl syntax checker to prevent
+	  hanging processes.
+
+2.9.20 
+	Bugfixes:
+	- missed utf8 output stream initialization for subsequent
+	  requests in mod_perl/SpeedyCGI context.
+
+2.9.19
 	Features:
-	- new parameter for DB configuration: "Initial Perl
-	  Statement", which is executed just after connecting to
-	  the database. Support by new.spirit 2.0.21 and better.
+	- New project attribute 'utf8', which makes a project
+	  Unicode aware. Default mime-type/charset is utf-8,
+	  all CGI parameters are expected to be utf8 encoded.
+	  All values in the database are expected to be
+	  utf8 encoded. utf8 upgrading / _utf8_on is done
+	  on all I/O variables (for CGI and SQL).
+	  Requires Perl 5.8.0
 
-2.45 Wed Apr 17 2002, joern
+2.9.18
+	Bugfixes:
+	- finally fixed whitespace generation problems. Now
+	  CIPP3 behaves exactly like CIPP2
+	- sometimes the Perl checker process hangs - this
+	  is prevented by a 5 seconds timeout.  
+
+2.9.17
+	Bugfixes:
+	- Whitespace between CIPP tags was removed entirely,
+	  what could mess up HTML formatting. Now whitespace
+	  appears as is.
+
+2.9.16
+	!!! Note: you must recompile your project after
+	          upgrading to this version  !!!
+
+	Features:
+	- updated CIPP::Manual
+	- the script doc/create_pdf.sh creates a nice looking
+	  PDF version of CIPP::Manual. It requires pod2html
+	  and ps2pdf.
+
+	Bugfixes:
+	- SpeedyCGI context: internal request object wasn't
+	  destroyed at the end of a request if a DBI database
+	  handle was stored in a global variable, because the
+	  request object was referenced by the database handle
+	  through a closure. This out of sync request destruction
+	  could lead to memory leaks or other problems.
+	- internal CIPP::Request object was passed unnecessarily
+	  to Include subroutines.
+	- newlines were always generated, even for such constructs:
+	  no<?IF COND="1">newline<?/IF>here.
+
+2.9.15
+	Bugfixes:
+	- <?SQL MY RESULT> didn't work
+	- internal exception if an include file wasn't readable
+
+2.99.14
+	Features:
+	- revised internal API naming convention
+	- documented CIPP::Request interface for public access
+	  (not stable yet, interface may change)
+	- local Perl syntax check for subroutines defined with
+	  <?SUB>. This reports illegal usage of global lexical
+	  variables inside the subroutine. The new option
+	  <?SUB ... IMPORT="$foo"> tells the syntax checker,
+	  that access to $foo is explicitely allowed (e.g. if
+	  you need access to lexically defined class variables)
+	  Note: the IMPORT option was also added to CIPP2 2.47,
+	        as a no-op, so you can use this in CIPP3 programs,
+		which must compile under CIPP2 as well.
+	- new command: <?FRAME SRC>
+
+	Bugfixes:
+	- processing cipp-html objects left files in /tmp
+	- internal exception handling fixed: error messages
+	  of exceptions caught with <?TRY> were printed out.
+
+2.99.13
+	Features:
+	- new option <?GETURL PATHINFO="">
+	- new option <?SQL COND>:
+	  With <?SQL COND="$foo < $bar"> data will only be fetched
+	  as long as the condition $foo < $bar is true.
+	- <?AUTOCOMMIT ON/OFF> throws an exception, if AutoCommit
+	  is already on (resp. off)
+	- <?COMMIT> and <?ROLLBACK> throw an exception, if
+	  AutoCommit is enabled.
+	- new parser internal attribute url_par_delimiter, which
+	  defines the delimiter for URL parameters (& or ;). The
+	  ; delimiter prevents problems with entity interpolation
+	  in URL's (e.g. &not)
+	- error message reporting enhanced. Stack backtrace with
+	  CIPP and Perl line numbers where possible.
+	- if a CGI program is started only a ASCII formatted
+	  error message is shown, instead of the sophisticated
+	  HTML version.
+	- <?IMG> tag determines image geometry at runtime and set
+	  WIDTH/HEIGHT attributes accordingly, if not explicetly
+	  set by the author. Needs Image::Size on the development
+	  system, which is autodetected. If not available this 
+	  feature is silently disabled.
+	
+	Bugfixes:
+	- <?SQL RESULT> gives 0 instead of 0E0, if no rows were
+	  processed.
+	- newlines at the end of parameter lists (e.g. <?INCINTERFACE
+	  OPTIONAL="... <nl>") weren't removed, which results
+	  in Perl syntax errors sometimes.
+
+2.99.12
+	Bugfixes:
+	- prod directory path of a module wasn't created
+	  automatically
+
+2.99.11
+	Bugfixes:
+	- <?IMG> command produced linefeed after <img> tag.
+
+2.99.10
+	Bugfixes:
+	- <?OPTION> tag was broken
+
+2.99.9 Wed Apr 17 2002, joern
 	Features:
 	- strip whitespace from SQL commands before passing them
 	  to DBI. MSSQL *hangs* if a SQL statement begins with
 	  a TAB or NL character... *sigh*
+	- CIPP::Runtime Version 0.40 copied from CIPP2 Distribution.
+	  This way mixing CIPP2 and CIPP3 projects on production
+	  systems should be possible (untested yet)
 
-2.44 Tue Apr 09 2002, joern
+2.99.8 Tue Apr 08 2002, joern
 	Features:
-	- support for brief error reports
-
-2.43 Thu Jan 30 2002, joern
-	Feature:
-	- <?MODULE ISA="module"> loads 'module' and inherits
-	  from it.
-
-2.42 Wed Jan 23 2002, joern
-	Feature:
-	- in conjunction with new.spirit 2.0.15 CIPP now supports
-	  persistent database connections in mod_perl or SpeedyCGI
-	  environments.
-
-2.41 Fri Dec 10 2001, joern
-	Bugfix:
-	- removed AutoCommit/Commit/Rollback bypassing for MySQL
-	  databases
-
-2.40 Fri Nov  9 2001, joern
-	Bugfix:
-	- <?REQUIRE ISA> was broken and is still not documented
-	  in CIPP::Manual. If you provide the ISA switch and inside
-	  a <?MODULE>, this module inherits from the loaded module.
-
-2.39 Tue Oct 30 2001, joern
-	Bugfix:
-	- upload files are not closed by CIPP, instead they're
-	  seeked to the beginning, thus mulitpile saving the
-	  same file is possible (even if the same file was
-	  uploaded via different upload fields in one request)
-
-2.38 Sat Oct 13 2001, joern
-	Bugfix:
-	- CGI::CIPP did not recognize the include_sub directive
-	  correctly
-	- Apache::CIPP prints now many "</table>" before giving
-	  error messages. This prevents invisible error messages
-	  inside tables which are not finished due to the
-	  exception.
-
-2.37 Tue Jul 24 2001, joern
-	Bugfix:
-	- removed unwanted debugging output on database close from
-	  CIPP::Runtime. Note: you must install this CIPP::Runtime
-	  version (0.39) on all your production systems to get rid
-	  of the debugging messages.
-
-	Features:
-	- <?GETURL> support for new.spirit generic file type and
-	  jar file types
-
-2.36_04 Mon May 14 2001, joern
-	INTERNAL BETA RELEASE
-	Bugfix:
-	- chdir to the base dir of the CGI program did not work,
-	  because it was exectued too late. Thus programs did not
-	  work, if the actual working directory differed from
-	  the installation directory.
-	- documentation is uptodate
-	
-	Incompatible Change:
-	- The shortcut syntax for includes <?x.include.this>
-	  is not deprecated anymore. It is completely forbidden.
-
-	Features:
-	- new CIPP command
-	  <?>arbitrary perl expression to be printed<?/>
-
-	  This makes it possible to write things like this
-	  with less syntax overhead:
-
-	  <?>$object->get_attribute<?/>
-
-	  The official Perl solution for this:
-
-	  ${\( $object->get_attribute )}
-
-	  is really ugly, and the CIPP way
-	  
-	  <?PERL>print $object->get_attribute;<?/PERL>
-	  
-	  too long ;)
-
-
-2.36_03	Mon May 14 2001, joern
-	INTERNAL BETA RELEASE
-	Bugfix:
-	- <?REQUIRE> did not work for modules outside the own
-	  project
-
-2.36_02	Mon May 14 2001, joern
-	INTERNAL BETA RELEASE
-	Bugfix:
-	- CIPP::Runtime threw warnings on program exit:
-	  "commit ineffective with AutoCommit enabled ... "
-	- "make test" always failed
-
-2.36_01	Mon May 14 2001, joern
-	INTERNAL BETA RELEASE
-	Bugfix:
-	- Bugzilla Bug #132:
-	  - fixes some mod_perl bugs. If several new.spirit projects
-	    are installed under one mod_perl instance some side effects
-	    occured (establishing wrong database connections, loading
-	    of wrong base configs)
-	  - establishing the correct @INC path failed under mod_perl
-	    (subsequent requests only had the standard @INC, all project
-	     specific @INC entries disappeared)
-
-2.35	Wed Mar 28 2001, joern
-	Bugfix:
-	- under new.spirit <?GETURL> did not work on cipp-html objects
-	  with special file extensions (js, css)
-
-2.34	Wed Mar 28 2001, joern
-	Bugfix:
-	- an <?EXIT> inside a <?CATCH> block causes that the catched
-	  exception was thrown on exit
-	- Include call code for Include Subroutines
-	  was totally broken
-
-2.33	Tue Mar 27 2001, joern
-	- <?SAVEFILE> throws more detailed exception, when
-	  the upload file parameter is not defined
-
-2.32	Mon Mar 26 2001, joern
-	- CIPP::Runtime now gives slightly more information on database
-	  connection faults
-	- fixed a bug in CIPP::Include. Include parameters which contained
-	  double quotes produce syntax errors (in Include Subroutine mode)
-
-2.31	Fri Mar 23 2001, joern
-	- fixed a bug in <?SQL VAR=" $a, $b"> parsing. Leading
-	  whitespace produces incorrect perl code.
-
-2.30	Sat Mar 16 2001 joern
-	- now Apache::CIPP and CGI::CIPP are integrated into the
-	  CIPP distribution. Extra downloading and installation
-	  is not neccessary anymore. The documentation is actually
-	  not perfectly merged, so some READMEs and PODs contain
-	  redundant information. Please be patient: a new documenatation
-	  is on its way! ;) Anyhow: this adresses only installation
-	  notes. The CIPP language itself is good documented through
-	  the CIPP::Manual POD module.
-	  
-	- the experimental implementation of Subroutine Includes
-	  is now less experimental ;) You can control this feature
-	  through the Apache or CGI::CIPP configuration parameter
-	  'include_subs'. The future will bring CIPP module generation
-	  with all that caching stuff for Apache::CIPP and CGI::CIPP
-	  environments, and not only under new.spirit.
-	  
-	  Note:
-	  =====
-	  Before enabling Subroutine Includes, delete your CIPP cache
-	  directory, because the internal file structure has changed.
-
-	- the new configuration parameter 'stats' controls collection
-	  of runtime profile statistics. You can see how much time
-	  your programs *and* Includes spend. Refer to the Apache::CIPP
-	  manpage for a brief description of enabling this feature.
-	  
-	  Note:
-	  =====
-	  Statistics are collected on a per process base, so this only
-	  functions for mod_perl or SpeedyCGI environments. Pure CGI
-	  environments (new.spirit or CGI::CIPP) are currently not
-	  supported, but this may change in future.
-
-2.29	Mon Mar 12 2001 joern
-	- Bugfix:
-	  Due to a bug inside the CIPP Include Cache machanism a
-	  <?!HTTPHEADER> command used by an Include did not
-	  work, if you do a new.spirit "Project Compilation"
-	  (only for the *first* processed object, which includes
-	  this Cache include)
-
-2.28	Wed Mar 07 2001 joern
-	- updated CIPP::Manual
-
-2.27	Mon Mar 05 2001 joern
-	- the BEGIN block at the top of each CGI program is marked
-	  with a # sign to tell new.spirit not to strip it off for
-	  syntax checking
-
-2.26	Mon Mar 05 2001 joern
-	- experimental implementation of Subroutine Includes. Includes
-	  are processed to subroutines, instead of copying the content
-	  of the include into the actual document. Programs need much less
-	  memory and can speed up to 20% in a mod_perl environment.
-	  Currently this works only in Apache::CIPP and CGI::CIPP
-	  environment. To enable this feature, set $CIPP::INCLUDE_SUBS
-	  before CIPP->new(), until this feature is "official".
-	- a new command: <?DUMP $var ...>. Uses Data::Dumper to dump
-	  the listed variables to STDOUT, encapsulated in a <pre> block.
-	- added a new option to the SQL commands: DBH. If a DBH option
-	  is present, the given variable name is used as the database
-	  handle for this operation. It is not possible to use the DBH
-	  and DB option in combination.
-	  
-	  The following SQL related commands recognize the DBH option:
-	  
-	  <?SQL> <?COMMIT> <?ROLLBACK> <?AUTOCOMMIT> <?DBQUOTE>
-
-2.25	Wed Feb 28 2001 joern
-	- fixed html formatting bug in error formatting function
-
-2.24	Sun Feb 25 2001 joern
-	- ported dynamic database connection feature to Apache::CIPP
-	  and CGI::CIPP. This now works under all CIPP environments.
-
-2.23	Wed Feb 21 2001 joern
-	- error formatting in case of a CIPP/new.spirit module name
-	  clashing was messed up, but there are still problems in
-	  error formatting (very seldom, so I don't hurry ;)
-
-2.22	Mon Feb 19 2001 joern
-	Bugfix:
-	- <?GETURL> did not work for .png images
-
-2.21	Fri Feb 16 2001 joern
-	Bugfix:
-	- <?GETPARAM>, <?GETPARAMLIST> and <?SAVEFILE> did not work
-	  inside of CIPP modules
-
-2.20	Thu Feb 15 2001 joern
-	- <?HTML> forces the preprocessor to generate print statements
-	  even in 'cipp/dynamic' mode.
-
-2.19	Thu Feb 15 2001 joern
-	- database connections are now establisjed dynamically.
-	  In earlier version all required database connections found
-	  in the program were established at the top of the program.
-	  Now the connection is made on the fly, where needed.
-
-	- WARNING: this code is not tested neither under Apache::CIPP
-	           nor CGI::CIPP environment and likely will fail
-		   there. Please dont use CIPP 2.19 with these modules.
-
-2.18	Wed Feb 14 2001 joern
-	- Bugfix: alternate database names did still not work
-	  with new.spirit 2.x
-
-2.17	Mon Feb 12 2001 joern
-	- Bugfix: alternate database names did not work with new.spirit 2.x
-	- Naming of x.bla.db does now work, project name does not matter
-
-2.16	Tue Feb 11 2001 joern
-	- (hopefully) final bug fixing in http header generation:
-	  The project wide configured default HTTP header
-	  was printed, although 'cipp/dynamic' is set and no
-	  <?!HTTPHEADER> occurs.
-	- also a HTTP header was printed, if the 'print_content_type'
-	  attribute was set to false (e.g. in case of generating
-	  a static HTML page with new.spirit)
-
-2.16_01	Tue Feb  6 2001 joern
-	- fix for usage with new.spirit 2.x. The new style .m files
-	  for object properties broke the object source file resolution
-	  algorithm
-
-2.15    Tue Nov 28 2000 joern
-	- added <?INPUT TYPE="image" SRC="x.gifs.picture">
-	- fixed Bug in HTTP Header generation in case of
-	  "cipp/dynamic" mode
-
-2.14_04 Fri Oct 13 2000 joern
-	- Bugfix: a broken http header was printed when
-	          generating CIPP-HTML files with new.spirit 2.x
-
-2.14_03 Sun Aug 13 2000 joern
-	- Include cache works now Ok in Apache::CIPP
-	  environments, if same named include occur
-	  in different virtual hosts
-
-2.14_02 Tue Aug  8 2000 joern
-	INTERNAL BETA RELEASE PRE 2.15
-	- this version represents a huge merge of the two CIPP
-	  trunks 2-0-9-patches and 2.14_01.
-
-	  2-0-9 implements many mod_perl fixes for using
-	  generated CGI programs (new.spirit) under mod_perl.
-
-	  2.14_01 adds many features to the CIPP language
-	  and has some internal optimizations.
-
-	- the CIPP/DB_DBI.pm module comes mainly from the
-	  2.14_01 trunk. Only some fixes added to the 2-0-9
-	  revision in the 2-0-9-patches trunk are added
-	  manually to 2.14_01, because 2.14_01 got a major
-	  internal redesign of the method interfaces.
-
-	- added STICKY Feature to
-		<?INPUT TYPE="checkbox">
-		<?INPUT TYPE="radio">
-
-	- added new CIPP Tags
-		<?SELECT>
-		<?OPTION>
-		<?!PROFILE>	(experimental, interface may change)
-		<?!HTTPHEADER>
-		<?#>
-
-	- Thanks go to Martin H. Sluka <martin@sluka.de> for
-	  his suggestion about the STICKY feature.
-
-	- Change syntax of <?GETURL> command. See documentation
-	  CIPP::Manual for details
-	
-	- <?AUTOPRINT> is depreciated. Use <?!AUTOPRINT> instead.
-
-2.14_01  Tue Mar 29 2000 joern
-	INTERNAL BETA RELEASE
-	- disconnect before connect to prevent rollback
-	  ineffective error messages in mod_perl context
-
-2.13	 Mo  Mar  6 2000 joern
-	- new release, published to CPAN
-
-2.13_03  Fr  Nov 26 1999 joern
-	INTERNAL BETA RELEASE
-	
-	- Bugfix: debugging output in Apache/CGI Modus crashed
-
-2.13_02	 Fr  Nov 26 1999 joern
-	INTERNAL BETA RELEASE
-	
-	- many CIPP commands were dependent from the context, e.g.
-	  it was impossible to use <?GETURL> in a <?PERL> context.
-	  Now nearly all CIPP commands can be used in any context,
-	  only inside a <?VAR> command context no other CIPP commands
-	  can be used (which of course would make no sense ;)
-	- new CIPP command <?HTML> to switch from <?PERL> context
-	  into HTML context
-	- now it is possible to nest <?SQL> commands, if the underlying
-	  database engine supports multiple executed statement handles
-
-
-2.13_01  Thu Nov 25 1999 joern
-	INTERNAL BETA RELEASE
-
-	- CIPP debugging source output enhanced: a summary of
-	  errors is printed, with hyperlinks to the appropriate
-	  sections of the highlighted source code output, so
-	  you can navigate through your source code
-	- new internal method to get the top level used objects
-	  of a CIPP program (the existent methods always flatten
-	  the dependency hierarchies)
-	- new method for formatting Perl syntax error output, incl.
-	  referencing to the corresponding CIPP lines
-	- new CIPP command <?MODULE>
-	- new CIPP command <?USE>
-	- command <?LIB> is depreciated
-	- DBI code generator has been slighlty optimized
-	- some CIPP global variables of the generated Perl programs
-	  did change. Currently there is a compatability patch active,
-	  so existent applications (e.g. new.spirit 1.x, Apache::CIPP
-	  and friends) need no change. Future releases will depend
-	  on the new interfaces. Actually only new.spirit 2.x uses
-	  the new style interface.
-
-2.12  Sat Oct 09 1999 joern
-	- added a workaround for Informix databases. After connecting
-	  to the database, a "set lock mode to wait" is executed,
-	  because some Informix databases do not wait on a lock. Instead
-	  nothing happens, even no exception is thrown. :(
-	  I will add this as an official feature in the near future,
-	  called 'initial sql statement' per database. This is more
-	  flexible than this hardcoded workaround.
-
-2.11  Thu Sep 30 1999 joern
-	- the Changes log has restarted with this version
-	- CIPP has now multilanguage support. Error messages
-	  are in english or german.
-	- the documentation is translated to english. It is not
-	  part of this distribution. Please download the package
-	  CIPP-Doc from CPAN.
-
-
-The previous section was in german language only and rather long,
-so it is omitted here.
+	- support for brief error reports in new.spirit cmd line mode
+
+2.99.7 Fri Apr 05 2002, joern
+	Bugfxies:
+	- <?GETPARAM>, <?GETPARAMLIST> didn't work
+
+2.99.6 Fri Mar 22 2002, joern
+	Bugfixes:
+	- fixed bug in cached error mechanism
+
+2.99.5 Wed Jan 31 2002, joern
+	Bugfixes:
+	- <?GETURL> did not work on jar files
+	- <?SUB> subroutine not found in main package
+	- <?SQL> no trim of trailing semicolon
+	- CIPP module initilization failed on inherited classes
+	- <?GETURL RUNTIME> did not work
+
+2.99.4 Wed Jan 30 2002, joern
+	Bugfixes:
+	- many CIPP object types couldn't be resolved in new.spirit mode
+	- variable list parsing was too sensitive, e.g. hash derefences
+	  and stuff were rejected by the parser
+	- static text objects had no URL
+
+
+Major / Incompatible Changes to CIPP 2.x
+========================================
+
+- <?INTERFACE>, <?INCINTERFACE> may only be used one time per program,
+  and only in CGIs resp. Includes
+- no defaulting to scalar variables when no $@% is given
+- <?VAR>: DEFAULT did not work with NOQUOTE
+- <?LOG>: throws an exception if something gets wrong
+- variable name / option case is preserved for these statements now:
+  - <?MY>
+  - <?DUMP>
+  - <?TEXTAREA>
+- immediate tag closing for emtpy block tags:
+  <?SQL SQL="insert into ..." />
+- always "use strict"
+- <?FETCHUPLOAD>
+- <?MODULE NAME="X" ISA="A, B, C">

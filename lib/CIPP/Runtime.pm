@@ -1,9 +1,9 @@
-# $Id: Runtime.pm,v 1.10 2002/06/17 13:51:39 joern Exp $
+# $Id: Runtime.pm,v 1.1 2002/04/17 10:30:03 joern Exp $
 
 package CIPP::Runtime;
 
-$REVISION = q$Revision: 1.10 $;
-$VERSION = "0.41";
+$REVISION = q$Revision: 1.1 $;
+$VERSION = "0.40";
 
 use strict;
 use FileHandle;
@@ -372,7 +372,6 @@ sub Open_Database_Connection {
 	my $password;   
 	my $autocommit; 
 	my $init;       
-	my $init_perl;
 	my $cache_enable;
 
 	if ( not $apache_request ) {
@@ -389,7 +388,6 @@ sub Open_Database_Connection {
 		$password     = \${"$pkg:\:password"};
 		$autocommit   = \${"$pkg:\:autocommit"};
 		$init	      = \${"$pkg:\:init"};
-		$init_perl    = \${"$pkg:\:init_perl"};
 		$cache_enable = \${"$pkg:\:cache_enable"};
 
 	} else {
@@ -423,13 +421,6 @@ sub Open_Database_Connection {
 		$dbh->do ( $$init );
 		die "database_initialization\t$DBI::errstr" if $DBI::errstr;
 	}
-
-	if ( $$init_perl ) {
-		eval_init_perl (
-			code_sref => $init_perl,
-			dbh       => $dbh,
-		);
-	}
 	
 	if ( $$cache_enable ) {
 		# cache handle, if caching is enabled
@@ -443,17 +434,6 @@ sub Open_Database_Connection {
 	}
 
 	return $dbh;
-}
-
-sub eval_init_perl {
-	my %__par = @_;
-	my ($__code_sref, $dbh) = @__par{'code_sref','dbh'};
-
-	eval $$__code_sref;
-	croak "sql_open\tError executing database initialization perl code!\n$@"
-		if $@;
-
-	1;
 }
 
 sub Close_Database_Connections {
