@@ -1,6 +1,4 @@
 package CIPP_Exec;
-$cipp::back_prod_path="../..";
-BEGIN{$cipp::back_prod_path="../..";}
 use strict;
 $CIPP_Exec::apache_mod = 1;
 $CIPP_Exec::apache_program = "input.cipp";
@@ -12,11 +10,13 @@ if ( ! defined $CIPP_Exec::_cipp_in_execute ) {
 	use CGI;
 	package CIPP_Exec;
 	$cipp_query = new CGI;
-	$cipp_query->import_names('CIPP_Exec');
+	
 }
 
 eval { # CIPP-GENERAL-EXCEPTION-EVAL
 package CIPP_Exec;
+# Debugging
+# CIPP::Runtime::init_request();
 CIPP::Runtime::Close_Database_Connections();
 $cipp_db_zyn::dbh = undef if not $CIPP_Exec::no_db_connect;
 

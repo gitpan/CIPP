@@ -10,7 +10,7 @@ CIPP - Reference Manual
 
 This is the reference manual for CIPP, the powerful preprocessor
 language for embedding Perl and SQL in HTML. This documentation
-module is part of the CIPP distribution available on CPAN.
+module is part of the CIPP distribution which is available on CPAN.
 
 The manual describes all CIPP commands in alphabetical order.
 Each reference contains syntax notation, textual description
@@ -26,12 +26,12 @@ The conversion of the FrameMaker source document to the POD
 format is done automatically. Due to this the layout maybe slightly
 messed up in some sections, but everything should be readable
 nevertheless. If you don't like this please refer to the PDF
-document which has a really nice layout.
+document which has a clean layout.
 
 =head1 QUICK FIND A COMMAND DESCRIPTION
 
-If your perldoc is using 'less' for paging, it is easy to jump
-to a particular command description.
+If your perldoc is using 'less' or 'view' for paging, it is quite
+easy to jump to a particular command description.
 
 E.g. if you want to read the E<lt>?FOO> section, simply type this.
 
@@ -46,15 +46,15 @@ short description, divided into sections of command types.
 
 =over 8
 
-=item BLOCK
+=item <?BLOCK>
 
 Creation of a block context to limit the scope of private variables
 
-=item MY
+=item <?MY>
 
 Declaring a private (block local) variable
 
-=item VAR
+=item <?VAR>
 
 Definition of a variable
 
@@ -64,35 +64,35 @@ Definition of a variable
 
 =over 8
 
-=item DO
+=item <?DO>
 
 Loop with condition check after first iteration
 
-=item ELSE
+=item <?ELSE>
 
 Alternative execution of a block
 
-=item ELSIF
+=item <?ELSIF>
 
 Subsequent conditional execution
 
-=item FOREACH
+=item <?FOREACH>
 
 Loop iterating with a variable over a list
 
-=item IF
+=item <?IF>
 
 Conditional execution of a block
 
-=item PERL
+=item <?PERL>
 
 Insertion of pure Perl code
 
-=item SUB
+=item <?SUB>
 
 Definition of a Perl subroutine
 
-=item WHILE
+=item <?WHILE>
 
 Loop with condition check before first iteration
 
@@ -102,23 +102,23 @@ Loop with condition check before first iteration
 
 =over 8
 
-=item CONFIG
+=item <?CONFIG>
 
 Import a config file
 
-=item INCLUDE
+=item <?INCLUDE>
 
 Insertion of a CIPP Include file in the actual CIPP code
 
-=item MODULE
+=item <?MODULE>
 
 Definition of a CIPP Perl Module
 
-=item REQUIRE
+=item <?REQUIRE>
 
 Import a CIPP Perl Module
 
-=item USE
+=item <?USE>
 
 Import a standard  Perl module
 
@@ -128,19 +128,19 @@ Import a standard  Perl module
 
 =over 8
 
-=item CATCH
+=item <?CATCH>
 
 Execution of a block if a particular exception was thrown in a preceding TRY block.
 
-=item LOG
+=item <?LOG>
 
 Write a entry in a logfile.
 
-=item THROW
+=item <?THROW>
 
 Explicite creation of an exception.
 
-=item TRY
+=item <?TRY>
 
 Secured execution of a block. Any exceptions thrown in the encapsulated block are caught.
 
@@ -150,27 +150,27 @@ Secured execution of a block. Any exceptions thrown in the encapsulated block ar
 
 =over 8
 
-=item AUTOCOMMIT
+=item <?AUTOCOMMIT>
 
 Control of transaction behaviour
 
-=item COMMIT
+=item <?COMMIT>
 
 Commit a transaction
 
-=item DBQUOTE
+=item <?DBQUOTE>
 
 Quoting of a variable for usage in a SQL statement
 
-=item GETDBHANDLE
+=item <?GETDBHANDLE>
 
 Returns the internal DBI database handle
 
-=item ROLLBACK
+=item <?ROLLBACK>
 
 Rollback a transaction
 
-=item SQL
+=item <?SQL>
 
 Execution of a SQL statement
 
@@ -180,19 +180,19 @@ Execution of a SQL statement
 
 =over 8
 
-=item GETURL
+=item <?GETURL>
 
 Creation of a CIPP object URL
 
-=item HIDDENFIELDS
+=item <?HIDDENFIELDS>
 
 Producing a number of hidden formular fields
 
-=item HTMLQUOTE
+=item <?HTMLQUOTE>
 
 HTML encoding of a variable
 
-=item URLENCODE
+=item <?URLENCODE>
 
 URL encoding of a variable
 
@@ -202,31 +202,31 @@ URL encoding of a variable
 
 =over 8
 
-=item A
+=item <?A>
 
 Replaces <A> tag
 
-=item FORM
+=item <?FORM>
 
 Replaces <FORM> tag
 
-=item IMG
+=item <?IMG>
 
 Replaces <IMG> tag
 
-=item INPUT
+=item <?INPUT>
 
 Replaces <INPUT> tag, with sticky feature
 
-=item OPTION
+=item <?OPTION>
 
 Replaces <OPTION> tag, with sticky feature
 
-=item SELECT
+=item <?SELECT>
 
 Replaces <SELECT> Tag, with sticky feature
 
-=item TEXTAREA
+=item <?TEXTAREA>
 
 Replaces <TEXTAREA> tag
 
@@ -236,23 +236,23 @@ Replaces <TEXTAREA> tag
 
 =over 8
 
-=item GETPARAM
+=item <?GETPARAM>
 
 Recieving a non declared CGI input parameter
 
-=item GETPARAMLIST
+=item <?GETPARAMLIST>
 
 Returns a list of all CGI input parameter names
 
-=item INCINTERFACE
+=item <?INCINTERFACE>
 
 Declaration of a interface for CIPP Include
 
-=item INTERFACE
+=item <?INTERFACE>
 
 Declaration of a CGI interface for a CIPP program
 
-=item SAVEFILE
+=item <?SAVEFILE>
 
 Storing a client side upload file
 
@@ -262,11 +262,11 @@ Storing a client side upload file
 
 =over 8
 
-=item APGETREQUEST
+=item <?APGETREQUEST>
 
 Returns the internal Apache request object
 
-=item APREDIRECT
+=item <?APREDIRECT>
 
 Redirects to another URL internally
 
@@ -276,15 +276,15 @@ Redirects to another URL internally
 
 =over 8
 
-=item !AUTOPRINT
+=item <?!AUTOPRINT>
 
 Controls automatic output of HTML code
 
-=item !HTTPHEADER
+=item <?!HTTPHEADER>
 
 Dynamic generation of a HTTP header
 
-=item !PROFILE
+=item <?!PROFILE>
 
 Initiate generation of profiling code
 
@@ -294,13 +294,67 @@ Initiate generation of profiling code
 
 =over 8
 
-=item DUMP
+=item <?DUMP>
 
 Dumps preformatted contents of data structures
 
 =back
 
-=head1 COMMAND E<lt>?#>
+=head2 Miscellaneous
+
+=over 8
+
+=item <?>
+
+Print arbitrary Perl expressions
+
+=back
+
+=head1 COMMAND <?>
+
+=over 8
+
+=item B<Type>
+
+Miscellaneous
+
+=item B<Syntax>
+
+ <?>
+   # arbitrary Perl Expression to be printed
+ <?/>
+
+=item B<Description>
+
+This result of the Perl expression inside this block will be printed. Do not use this construct to print simple variables or generally Perl expressions which can be evaluated in a quoted string context. Simply write such expressions direct inside a HTML context into your document (see examples below).
+
+=item B<Examples>
+
+This examples show some handy cases for this construct:
+
+# method call with printing the result
+
+E<lt>?>$object->get_attributeE<lt>?/>
+
+# print actual unix timestamp
+
+E<lt>?>timeE<lt>?/>
+
+# calculate something and print the result
+
+E<lt>?>(time + 34800) * $$E<lt>?/>
+
+# This is possible, but unnecessary
+
+Value of a variable: E<lt>?>$fooE<lt>?/>
+
+# instead simply write this:
+
+Value of a variable: $foo
+
+=back
+
+=head1 COMMAND <?#>
 
 =over 8
 
@@ -340,7 +394,7 @@ You may nest <?#> blocks:
 
 =back
 
-=head1 COMMAND E<lt>?A>
+=head1 COMMAND <?A>
 
 =over 8
 
@@ -385,7 +439,7 @@ Image link to '/main/menu.cgi', in a CGI::CIPP or Apache::CIPP environment:
 
 =back
 
-=head1 COMMAND E<lt>?APGETREQUEST>
+=head1 COMMAND <?APGETREQUEST>
 
 =over 8
 
@@ -421,7 +475,7 @@ The Apache request object will be stored in the implicitely declared variable $a
 
 =back
 
-=head1 COMMAND E<lt>?APREDIRECT>
+=head1 COMMAND <?APREDIRECT>
 
 =over 8
 
@@ -458,7 +512,7 @@ This commands redirect internally to the homepage of the corresponding website:
 
 =back
 
-=head1 COMMAND E<lt>?AUTOCOMMIT>
+=head1 COMMAND <?AUTOCOMMIT>
 
 =over 8
 
@@ -515,7 +569,7 @@ Switch AutoCommit off for the database 'bar' and throw the user defined exceptio
 
 =back
 
-=head1 COMMAND E<lt>?!AUTOPRINT>
+=head1 COMMAND <?!AUTOPRINT>
 
 =over 8
 
@@ -570,7 +624,7 @@ These lines will never be printed, they are fully ignored!!!
 
 =back
 
-=head1 COMMAND E<lt>?BLOCK>
+=head1 COMMAND <?BLOCK>
 
 =over 8
 
@@ -605,7 +659,7 @@ $example is not declared here.
 
 =back
 
-=head1 COMMAND E<lt>?CATCH>
+=head1 COMMAND <?CATCH>
 
 =over 8
 
@@ -671,7 +725,7 @@ We try to insert a row into a database table, which has a primary key defined, a
 
 =back
 
-=head1 COMMAND E<lt>?COMMIT>
+=head1 COMMAND <?COMMIT>
 
 =over 8
 
@@ -723,7 +777,7 @@ We insert a row into a database table and commit the change immediately. We thro
 
 =back
 
-=head1 COMMAND E<lt>?CONFIG>
+=head1 COMMAND <?CONFIG>
 
 =over 8
 
@@ -784,7 +838,7 @@ Load of a config file with a name determined at runtime, in a new.spirit environ
 
 =back
 
-=head1 COMMAND E<lt>?DBQUOTE>
+=head1 COMMAND <?DBQUOTE>
 
 =over 8
 
@@ -849,7 +903,7 @@ The quoted variable can be used in a SQL statement this way:
 
 =back
 
-=head1 COMMAND E<lt>?DO>
+=head1 COMMAND <?DO>
 
 =over 8
 
@@ -883,7 +937,7 @@ Print  "Hello World" $n times. (note: for n=0 and n=1 you get the same result)
 
 =back
 
-=head1 COMMAND E<lt>?DUMP>
+=head1 COMMAND <?DUMP>
 
 =over 8
 
@@ -911,7 +965,7 @@ The contents of this variables are dumped to STDOUT.
 
 =back
 
-=head1 COMMAND E<lt>?ELSE>
+=head1 COMMAND <?ELSE>
 
 =over 8
 
@@ -943,7 +997,7 @@ Only Larry gets a personal greeting message:
 
 =back
 
-=head1 COMMAND E<lt>?ELSIF>
+=head1 COMMAND <?ELSIF>
 
 =over 8
 
@@ -983,7 +1037,7 @@ Larry and Linus get personal greeting messages:
 
 =back
 
-=head1 COMMAND E<lt>?FOREACH>
+=head1 COMMAND <?FOREACH>
 
 =over 8
 
@@ -1030,7 +1084,7 @@ Counting up to 'three':
 
 =back
 
-=head1 COMMAND E<lt>?FORM>
+=head1 COMMAND <?FORM>
 
 =over 8
 
@@ -1075,7 +1129,7 @@ Creating a similar form, but the action is written as an URL because we are in C
 
 =back
 
-=head1 COMMAND E<lt>?GETDBHANDLE>
+=head1 COMMAND <?GETDBHANDLE>
 
 =over 8
 
@@ -1139,7 +1193,7 @@ Ok, you simply can do this with the <?SQL> command, but now you can see how much
 
 =back
 
-=head1 COMMAND E<lt>?GETPARAM>
+=head1 COMMAND <?GETPARAM>
 
 =over 8
 
@@ -1181,7 +1235,7 @@ We recieve two parameters, one staticly named parameter and one scalar parameter
 
 =back
 
-=head1 COMMAND E<lt>?GETPARAMLIST>
+=head1 COMMAND <?GETPARAMLIST>
 
 =over 8
 
@@ -1215,7 +1269,7 @@ The list of all CGI input parameter identifiers will be stored into the array va
 
 =back
 
-=head1 COMMAND E<lt>?GETURL>
+=head1 COMMAND <?GETURL>
 
 =over 8
 
@@ -1308,7 +1362,7 @@ The CGI program "/secure/messager.cgi" recieves the parameters this way (note th
 
 =back
 
-=head1 COMMAND E<lt>?HIDDENFIELDS>
+=head1 COMMAND <?HIDDENFIELDS>
 
 =over 8
 
@@ -1349,7 +1403,7 @@ This is a form in a new.spirit environment, pointing to the object "x.secure.mes
 
 =back
 
-=head1 COMMAND E<lt>?HTMLQUOTE>
+=head1 COMMAND <?HTMLQUOTE>
 
 =over 8
 
@@ -1395,7 +1449,7 @@ We produce a <TEXTAREA> tag with a quoted instance of the variable $text. Note: 
 
 =back
 
-=head1 COMMAND E<lt>?!HTTPHEADER>
+=head1 COMMAND <?!HTTPHEADER>
 
 =over 8
 
@@ -1462,7 +1516,7 @@ A HTTP header is created, which tells proxies how long they may cache the conten
 
 =back
 
-=head1 COMMAND E<lt>?IF>
+=head1 COMMAND <?IF>
 
 =over 8
 
@@ -1500,7 +1554,7 @@ Only Larry gets a greeting message here.
 
 =back
 
-=head1 COMMAND E<lt>?IMG>
+=head1 COMMAND <?IMG>
 
 =over 8
 
@@ -1543,7 +1597,7 @@ In CGI::CIPP or Apache::CIPP environment we provide an URL instead of a dotC<-s>
 
 =back
 
-=head1 COMMAND E<lt>?INCINTERFACE>
+=head1 COMMAND <?INCINTERFACE>
 
 =over 8
 
@@ -1629,7 +1683,7 @@ The caller may use this <?INCLUDE> command. Note that all input parameter names 
 
 =back
 
-=head1 COMMAND E<lt>?INCLUDE>
+=head1 COMMAND <?INCLUDE>
 
 =over 8
 
@@ -1680,22 +1734,13 @@ Important note
 
 The actual CIPP implementation does really include the Include code at the position where the E<lt>?INCLUDE> command occurs. This affects variable scoping. All variables visible at the callers source code where you write the E<lt>?INCLUDE> command are also visible inside your Include. So you can use these variables, although you never declared them inside your Include. Use of this feature is discouraged, in fact you should avoid the usage of variables you did not declared in your scope.
 
-Short notation
-
-In a new.spirit environment the E<lt>?INCLUDE> command can be abbreviated in the following manner:
-
-  <?include_name
-      [ input_parameter_1=Wert1 ... ]
-      [ MY ]
-      [ variable_1=output_parameter_1 ... ] >
-
 =item B<Example>
 
 See example of <?INCINTERFACE>.
 
 =back
 
-=head1 COMMAND E<lt>?INPUT>
+=head1 COMMAND <?INPUT>
 
 =over 8
 
@@ -1772,7 +1817,7 @@ This will produce the following HTML code:
 
 =back
 
-=head1 COMMAND E<lt>?INTERFACE>
+=head1 COMMAND <?INTERFACE>
 
 =over 8
 
@@ -1834,7 +1879,7 @@ A HTML form which adresses this CGI program may look like this (assuming we are 
 
 =back
 
-=head1 COMMAND E<lt>?LOG>
+=head1 COMMAND <?LOG>
 
 =over 8
 
@@ -1892,7 +1937,7 @@ The error message "error in SQL statement" is added to the special logfile with 
 
 =back
 
-=head1 COMMAND E<lt>?MODULE>
+=head1 COMMAND <?MODULE>
 
 =over 8
 
@@ -1944,7 +1989,7 @@ It is not possible to use a variable or expression for NAME, you must always use
 
 =back
 
-=head1 COMMAND E<lt>?MY>
+=head1 COMMAND <?MY>
 
 =over 8
 
@@ -1985,7 +2030,7 @@ See <?BLOCK>
 
 =back
 
-=head1 COMMAND E<lt>?OPTION>
+=head1 COMMAND <?OPTION>
 
 =over 8
 
@@ -2022,7 +2067,7 @@ See the description of the <?SELECT> command for a complete example.
 
 =back
 
-=head1 COMMAND E<lt>?PERL>
+=head1 COMMAND <?PERL>
 
 =over 8
 
@@ -2075,7 +2120,7 @@ If this list contains some elements a string based on the list is generated.
 
 =back
 
-=head1 COMMAND E<lt>?!PROFILE>
+=head1 COMMAND <?!PROFILE>
 
 =over 8
 
@@ -2144,7 +2189,7 @@ You can use the PROFILE option of the <?SQL> command to replace the output of th
 
 =back
 
-=head1 COMMAND E<lt>?REQUIRE>
+=head1 COMMAND <?REQUIRE>
 
 =over 8
 
@@ -2183,7 +2228,7 @@ You may also place a scalar variable here, which contains the name of the module
 
 =back
 
-=head1 COMMAND E<lt>?ROLLBACK>
+=head1 COMMAND <?ROLLBACK>
 
 =over 8
 
@@ -2234,7 +2279,7 @@ We insert a row into a database table and rollback the change immediately. We th
 
 =back
 
-=head1 COMMAND E<lt>?SAVEFILE>
+=head1 COMMAND <?SAVEFILE>
 
 =over 8
 
@@ -2316,7 +2361,7 @@ The same procedure using the RUNTIME parameter.
 
 =back
 
-=head1 COMMAND E<lt>?SELECT>
+=head1 COMMAND <?SELECT>
 
 =over 8
 
@@ -2379,7 +2424,7 @@ This is a complete CIPP program, which provides a mulitple selection list and pr
 
 =back
 
-=head1 COMMAND E<lt>?SQL>
+=head1 COMMAND <?SQL>
 
 =over 8
 
@@ -2545,7 +2590,7 @@ Please refer to the examples in the parameter sections above.
 
 =back
 
-=head1 COMMAND E<lt>?SUB>
+=head1 COMMAND <?SUB>
 
 =over 8
 
@@ -2600,7 +2645,7 @@ You may call this subroutine from every Perl context this way.
 
 =back
 
-=head1 COMMAND E<lt>?TEXTAREA>
+=head1 COMMAND <?TEXTAREA>
 
 =over 8
 
@@ -2639,7 +2684,7 @@ COLS=80>&lt;B>HTML Text&lt;B></TEXTAREA>
 
 =back
 
-=head1 COMMAND E<lt>?THROW>
+=head1 COMMAND <?THROW>
 
 =over 8
 
@@ -2697,7 +2742,7 @@ E<lt>?/PERL>
 
 =back
 
-=head1 COMMAND E<lt>?TRY>
+=head1 COMMAND <?TRY>
 
 =over 8
 
@@ -2737,7 +2782,7 @@ We try to insert a row into a database table and write a log file entry with the
 
 =back
 
-=head1 COMMAND E<lt>?URLENCODE>
+=head1 COMMAND <?URLENCODE>
 
 =over 8
 
@@ -2782,7 +2827,7 @@ Hint: in CGI::CIPP and Apache::CIPP environments you also can use the <?A> comma
 
 =back
 
-=head1 COMMAND E<lt>?USE>
+=head1 COMMAND <?USE>
 
 =over 8
 
@@ -2819,7 +2864,7 @@ The standard modules File::Path and Text::Wrap are imported to your program.
 
 =back
 
-=head1 COMMAND E<lt>?VAR>
+=head1 COMMAND <?VAR>
 
 =over 8
 
@@ -2892,7 +2937,7 @@ Please refer to the examples in the parameter sections above.
 
 =back
 
-=head1 COMMAND E<lt>?WHILE>
+=head1 COMMAND <?WHILE>
 
 =over 8
 
@@ -2938,6 +2983,6 @@ Joern Reder <joern@dimedis.de>
 
 =head1 COPYRIGHT
 
-Copyright (C) 1999 by Jörn Reder and dimedis GmbH, All Rights
+Copyright (C) 1997-2001 by Joern Reder and dimedis GmbH, All Rights
 Reserved. This documentation is free; you can redistribute it
 and/or modify it under the same terms as Perl itself.

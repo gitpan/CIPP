@@ -4,148 +4,60 @@
 #	CIPP::Runtime.pm
 #
 # REVISION
-#	$Revision: 1.1.1.1 $
+#	$Revision: 1.8 $
 #
 # DESCRIPTION
-#	Enthält Funktionen, die zur Laufzeit von CIPP-CGI Programmen
-#	benötigt werden
-#
-# PACKAGE FUNKTIONEN
-#	Exception ($die_message)
-#		Exception-Handler für fatale Fehler. Die $die_message kann
-#		folgende Struktur haben:
-#			Message-Typ <TAB> Message
-#		Wenn "Message-Typ <TAB>" fehlt, wird als Typ 'general'
-#		angenommen.
-#		Die Exception wird zusammen mit dem Typ im CIPP Message Log
-#		gelogged.
-#
-#	Log ($type, $message, $filename, $throw)
-#		Logged eine $message vom Typ $typ im CIPP Message Log zusammen
-#		mit dem aktuellen Timestamp. Wenn $filename ungleich '' ist,
-#		wird die Message in die entsprechende Datei geschrieben, sonst
-#		in das Standard-CIPP-Message Log.
-#		Im Fehlerfalle wird die Exception $throw geworfen.
-#
-#	$quoted_text = HTML_Quote ($text)
-#		Quoted $text so, daß es innerhalb eines <TEXTAREA> verwendet
-#		werden kann.
-#
-#	$quoted_text = Field_Quote ($text)
-#		Quoted $text so, daß es innerhalb eines HTML Parameters
-#		gefahrlos angewendet werden kann, d.h. es " durch &quot;
-#		ersetzt.
-#
-#	$encoded_text = URL_Encode ($text)
-#		URL encoded den übergebenen $text.
-#
-#	Execute ($name, $query_string, $output)
-#		Führt das über den abstrakten Namen $name angegebene CGI
-#		Script aus, mit Übergabe von im $query_string definierten 
-#		Parametern aus.
-#		$output gibt an, was mit der Ausgabe des CGI Scripts geschehen
-#		soll.
-#		Wird über $output eine Scalarreferenz übergenen, wird die
-#		Ausgabe des CGI-Scriptes in dem referenzierten Scalar
-#		gespeichert.
-#		Ist $output selbst ein Scalar, wird $output als Dateiname
-#		interpretiert und die Ausgabe wird in diese Datei geschrieben.
-#
-#	$url = Get_Object_Url ( $object_name )
-#		Gibt die URL des Objektes $object_name zurück
+#	This module encapsulates some common functions, which are
+#	needed by CIPP programs at runtime.
 #
 #------------------------------------------------------------------------------
 # MODIFICATION HISTORY
-#	??.??.97 0.1.0.0 joern
-#		- Erste Version
 #
-#	11.03.98 0.1.0.1 joern
-#		- Execute: Umstellung auf verzeichnisorientierte Ablage
-#		  im prod-Bereich
-#		- Execute: Umstellung auf eval statt system Aufruf
-#
-#	16.03.98 0.1.0.2 joern
-#		- Log: zusätzliche Parameter $filename, $throw
-#		- Execute: Save-Filehandles auf symb. Referenzen umgestellt,
-#		  damit verschachtelte <?EXECUTE> funktionieren
-#
-#	18.03.98 0.1.0.3 joern
-#		- Log: der Name des aktuell ausgeführten CIPP Objekts wird
-#		  mit in das Logfile geschrieben
-#
-#	01.07.98 0.1.0.4 joern
-#		- Exception: macht kein die mehr, da es nicht mehr vom
-#		  SIG{__DIE__} Handler aus aufgerufen wird, sondern direkt
-#		  nach dem eval, welches um den gesamten generierten Code
-#		  gefaßt ist. So wird nach außen hin kein Fehlercode gegeben,
-#		  so daß der Webserver (bzw. OAS) keinen entsprechenden Fehler
-#		  generiert.
-#
-#	02.07.98 0.1.0.5 joern
-#		- Execute: Umbiegen des Error-Handlers ist nun nicht mehr
-#		  nötig, da general exceptions mittlerweile über ein globales
-#		  eval abgefangen werden
-#
-#	25.08.98 0.1.0.6 joern
-#		- neue Funktion: Get_Object_URL zur dynamischen Auflösung
-#		  von Objekt-URL's
-#
-#	25.10.98 0.1.0.7 joern
-#		- Wenn das Script als Apache-Modul ausgeführt wird
-#		  ($CIPP_Exec::apache_mod ist gesetzt), dann wird nicht
-#		  in das CIPP-Logfile gelogged, sondern direkt in das
-#		  Apache-Log
-#
-#	29.10.98 0.1.0.8 joern
-#		- Bugfix: HTML_Quote: < wurde nur einmal übesetzt
-#
-#	21.11.98 0.1.0.9 joern
-#		- Read_Config liest CONFIG's auch dann ein, wenn sich
-#		  die Quell-Datei geändert hat (mod_perl)
-#
-#	04.12.98 0.1.0.10 joern
-#		- <?LOG FILE=x> schreibt per Default relativ zu prod/logs
-#		- REMOTE_ADDR wird mitgeloggt
-#
-#	20.12.98 0.2.0.0 joern
-#		- <?CONFIG>: prüft, ob Datei vorhanden und wirft Exception,
-#		  wenn Datei fehlt.
-#
-#	16.01.1999 0.3.0.0 joern
-#		- umbenannt von CIPP_Runtime nach CIPP::Runtime
-#
-#	26.02.1999 0.31 joern
-#		- CIPP Exception Logging starb mit 'die' wenn Logfile
-#		  nicht geschrieben werden konnte. Nun gibt es eine
-#		  entsprechende Fehlermeldung
-#
-#	xx.xx.1999 0.32 joern
-#		- Backtrace bei Fehlermeldungen
-#		- Configs werden nie gecached, sondern immer eingelesen
-#		  (sonst mod_perl Probleme)
-#
-#	06.07.2000 0.33 joern
-#		- Backtrace wird nur ausgegeben, wenn
-#		  CIPP_Exec::cipp_error_show gesetzt ist
+#	26.03.2001 0.37 joern
+#		- COMPATIBLE CHANGES:
+#		  more error message output when database connections fail
 #
 #==============================================================================
 
 package CIPP::Runtime;
 
-$REVISION = q$Revision: 1.1.1.1 $;
-$VERSION = "0.36";
+$REVISION = q$Revision: 1.8 $;
+$VERSION = "0.39";
 
 use strict;
 use FileHandle;
 use Cwd;
 use Carp;
 
+sub debug {
+	return;
+
+	my @c = caller(1);
+	$c[3] =~ m!::([^:]+)$!;
+	my $sub = $1;
+	$0 =~ m!/([^/]+)$!;
+	my $file = $1;
+	print STDERR "$$ $file\t$sub\t$_[0]\n";
+}
+
+sub init_request {
+	return;
+	use Cwd;
+	debug("cwd=".cwd());
+	debug("base config was: $cipp::back_prod_path/config/cipp.conf");
+	debug("CIPP_Exec::cipp_config_dir=$CIPP_Exec::cipp_config_dir");
+	debug("INC: ", join(",",@::INC));
+}
+
 sub Read_Config {
 	my ($filename, $nocache) = @_;
 
 	$nocache = 1;
 
-	die "CONFIG\File '$filename' not found" if not -f $filename;
+	confess "CONFIG\tFile '$filename' not found\n".
+		"working directory:".cwd()."\n".
+		"\@INC = ".(join(",",@::INC))."\n"
+		if not -f $filename;
 	
 	my $file_timestamp = (stat($filename))[9];
 	
@@ -154,9 +66,10 @@ sub Read_Config {
 		my $fh = new FileHandle;
 		open ($fh, $filename);
 		eval join ('', "no strict;\n", <$fh>)."\n1;";
-		die "CONFIG\t$@" if $@;
+		confess "CONFIG\t$@" if $@;
 		close $fh;
 		$CIPP::Runtime::cfg_timestamp{$filename} = $file_timestamp;
+		debug($filename);
 	}
 }
 
@@ -189,13 +102,18 @@ sub Exception {
 		}
 	}
 
+	eval {
+		confess "CIPP::Runtime version $CIPP::Runtime::VERSION\nSTACK-BACKTRACE";
+	};
+	my $stack_trace = $@;
+	Log ("EXC", "trace: $stack_trace");
+	Log ("EXC", "INC:".join(",",@INC));
+
 	if ( $CIPP_Exec::cipp_error_show ) {
-		eval {
-			confess "STACK-BACKTRACE";
-		};
-		print "<p><pre>$@</pre>\n";
+		print "<p><pre>$stack_trace</pre>\n";
 	}
 
+	Close_Database_Connections();
 #	die "TYPE=$type MESSAGE=$message";
 }
 
@@ -214,7 +132,7 @@ sub Log {
 	} else {
 		$program = $CIPP_Exec::apache_program;
 	}
-	my $msg = "$main::ENV{REMOTE_ADDR}\t$program\t$type\t$message";
+	my $msg = "$$\t$main::ENV{REMOTE_ADDR}\t$program\t$type\t$message";
 	
 	my $log_error;
 	if ( not $CIPP_Exec::apache_mod ) {
@@ -464,7 +382,11 @@ sub Open_Database_Connection {
 	if ( not $apache_request ) {
 		# we are in new.spirit plain CGI environment, so read
 		# the database configuration from file
-		do "$CIPP_Exec::cipp_config_dir/$db_name.db-conf";
+		my $config_file = "$CIPP_Exec::cipp_config_dir/$db_name.db-conf";
+		debug ("read db config: $config_file");
+		croak "sql_open\tcan't read db config file '$config_file'"
+			if not -r $config_file;
+		do $config_file;
 		no strict 'refs';
 		$data_source = \${"$pkg:\:data_source"};
 		$user	     = \${"$pkg:\:user"};
@@ -483,6 +405,8 @@ sub Open_Database_Connection {
 		$init	     = \$apache_request->dir_config ("db_${db_name}_init");
 	}
 
+	debug ("$$data_source, $$user, $$password");
+
 	my $dbh;
 	eval {
 		$dbh = DBI->connect (
@@ -494,7 +418,7 @@ sub Open_Database_Connection {
 		);
 	};
 
-	die "sql_open\t$DBI::errstr\n$@" if $DBI::errstr or $@;
+	croak "sql_open\t$DBI::errstr\n$@" if $DBI::errstr or $@ or not $dbh;
 	
 	push @CIPP_Exec::cipp_db_list, $dbh;
 	
@@ -512,9 +436,11 @@ sub Close_Database_Connections {
 	require DBI;
 	
 	foreach my $dbh ( @CIPP_Exec::cipp_db_list ) {
-		eval {
-			$dbh->disconnect;
-		} if $dbh;
+		# Log ("closing db connection: $dbh");
+		if ( $dbh ) {
+			eval { $dbh->rollback if not $dbh->{AutoCommit} };
+			eval { $dbh->disconnect };
+		}
 	}
 
 	@CIPP_Exec::cipp_db_list = ();

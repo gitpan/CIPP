@@ -1,7 +1,7 @@
 package Apache::CIPP;
 
 $VERSION = "0.14";
-$REVISION = q$Revision: 1.2 $;
+$REVISION = q$Revision: 1.3 $;
 
 use strict;
 
@@ -317,6 +317,8 @@ sub execute {
 	
 	# send simple http headers if the CIPP program wants us to
 	# send the header
+	
+#	print STDERR "$sub_name mime_type: $Apache::CIPP::mime_type{$sub_name}\n";
 	
 	if ( $Apache::CIPP::mime_type{$sub_name} ne 'cipp/dynamic' ) {
 

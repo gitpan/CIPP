@@ -1,3 +1,5 @@
+# $Id: Include.pm,v 1.3 2001/03/27 18:37:15 joern Exp $
+
 package CIPP::Include;
 
 use Carp;
@@ -597,17 +599,24 @@ sub generate_include_call_code {
 	$code .= "\tinput => {\n";
 	
 	# input parameters
-	my $input    = $self->{input};
-	my $quote;
+	my $input = $self->{input};
+	my $quote_start;
+	my $quote_end;
+	my $val;
 	foreach my $name ( keys %{$input} ) {
 		my $var = $interface->{input}->{$name} ||
 		          $interface->{optional}->{$name};
 		$var =~ /^(.)/;
 		my $type = $1;
+
 		if ( $type eq '$' ) {
 		     	# scalar parameter
-			$quote = defined $interface->{noquote}->{$name} ? '' : '"';
-			$code .= "\t\t$name => $quote$input->{$name}$quote,\n";
+			$quote_start = defined $interface->{noquote}->{$name} ? '' : 'qq{';
+			$quote_end   = defined $interface->{noquote}->{$name} ? '' : '}';
+			$val = $input->{$name};
+#			($val = $input->{$name}) =~ s/\{/\\{/g
+#				unless defined $interface->{noquote}->{$name};
+			$code .= "\t\t$name => $quote_start$val$quote_end,\n";
 
 		} elsif ( $type eq '@' ) {
 			# list parameter

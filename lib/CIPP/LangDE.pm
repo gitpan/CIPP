@@ -1,15 +1,16 @@
 package CIPP::LangDE;
 
-# $Id: LangDE.pm,v 1.1.1.1 2001/03/17 15:44:26 joern Exp $
+# $Id: LangDE.pm,v 1.2 2001/05/16 12:26:56 joern Exp $
 
 $VERSION = "0.01";
-$REVISION = q$Revision: 1.1.1.1 $;
+$REVISION = q$Revision: 1.2 $;
 
 use strict;
 
 package CIPP::Lang;
 
 %CIPP::Lang::msg = (
+	tag_unknown		=> "unbekannter CIPP Befehl",
 	missing_options		=> "fehlende Optionen: %s",
 	illegal_options		=> "illegale Optionsn: %s",
 	

@@ -3,7 +3,7 @@ package CIPP::Request;
 use strict;
 use vars qw ( $VERSION %INCLUDE_SUBS %INCLUDE_SUBS_LOADED );
 
-$VERSION = "0.02";
+$VERSION = "0.03";
 
 # this hash takes anonymous code references to loaded
 # include subroutines ( name => code reference )
@@ -121,7 +121,7 @@ sub load_include_subroutine {
 	# evalulate the code
 	my $sub = eval_perl_code (\$perl_code);
 	die "INCLUDE\truntime error loading include file '$perl_code_file':\n$@"
-		if $@;
+		if $@ or not ref $sub;
 	
 	# store load time in global hash
 	$INCLUDE_SUBS_LOADED{$sub_key} = time;

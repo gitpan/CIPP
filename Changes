@@ -1,4 +1,101 @@
+$Id: Changes,v 1.16 2001/07/24 15:32:45 joern Exp $
+
 Revision history for Perl extension CIPP.
+
+2.37 Tue Jul 24 2001, joern
+	Bugfix:
+	- removed unwanted debugging output on database close from
+	  CIPP::Runtime. Note: you must install this CIPP::Runtime
+	  version (0.39) on all your production systems to get rid
+	  of the debugging messages.
+
+	Features:
+	- <?GETURL> support for new.spirit generic file type and
+	  jar file types
+
+2.36_04 Mon May 14 2001, joern
+	INTERNAL BETA RELEASE
+	Bugfix:
+	- chdir to the base dir of the CGI program did not work,
+	  because it was exectued too late. Thus programs did not
+	  work, if the actual working directory differed from
+	  the installation directory.
+	- documentation is uptodate
+	
+	Incompatible Change:
+	- The shortcut syntax for includes <?x.include.this>
+	  is not deprecated anymore. It is completely forbidden.
+
+	Features:
+	- new CIPP command
+	  <?>arbitrary perl expression to be printed<?/>
+
+	  This makes it possible to write things like this
+	  with less syntax overhead:
+
+	  <?>$object->get_attribute<?/>
+
+	  The official Perl solution for this:
+
+	  ${\( $object->get_attribute )}
+
+	  is really ugly, and the CIPP way
+	  
+	  <?PERL>print $object->get_attribute;<?/PERL>
+	  
+	  too long ;)
+
+
+2.36_03	Mon May 14 2001, joern
+	INTERNAL BETA RELEASE
+	Bugfix:
+	- <?REQUIRE> did not work for modules outside the own
+	  project
+
+2.36_02	Mon May 14 2001, joern
+	INTERNAL BETA RELEASE
+	Bugfix:
+	- CIPP::Runtime threw warnings on program exit:
+	  "commit ineffective with AutoCommit enabled ... "
+	- "make test" always failed
+
+2.36_01	Mon May 14 2001, joern
+	INTERNAL BETA RELEASE
+	Bugfix:
+	- Bugzilla Bug #132:
+	  - fixes some mod_perl bugs. If several new.spirit projects
+	    are installed under one mod_perl instance some side effects
+	    occured (establishing wrong database connections, loading
+	    of wrong base configs)
+	  - establishing the correct @INC path failed under mod_perl
+	    (subsequent requests only had the standard @INC, all project
+	     specific @INC entries disappeared)
+
+2.35	Wed Mar 28 2001, joern
+	Bugfix:
+	- under new.spirit <?GETURL> did not work on cipp-html objects
+	  with special file extensions (js, css)
+
+2.34	Wed Mar 28 2001, joern
+	Bugfix:
+	- an <?EXIT> inside a <?CATCH> block causes that the catched
+	  exception was thrown on exit
+	- Include call code for Include Subroutines
+	  was totally broken
+
+2.33	Tue Mar 27 2001, joern
+	- <?SAVEFILE> throws more detailed exception, when
+	  the upload file parameter is not defined
+
+2.32	Mon Mar 26 2001, joern
+	- CIPP::Runtime now gives slightly more information on database
+	  connection faults
+	- fixed a bug in CIPP::Include. Include parameters which contained
+	  double quotes produce syntax errors (in Include Subroutine mode)
+
+2.31	Fri Mar 23 2001, joern
+	- fixed a bug in <?SQL VAR=" $a, $b"> parsing. Leading
+	  whitespace produces incorrect perl code.
 
 2.30	Sat Mar 16 2001 joern
 	- now Apache::CIPP and CGI::CIPP are integrated into the

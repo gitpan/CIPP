@@ -1,4 +1,4 @@
-# $Id: CIPP.pm,v 1.1.1.1 2001/03/17 15:44:25 joern Exp $
+# $Id: CIPP.pm,v 1.15 2001/07/24 15:33:07 joern Exp $
 
 # TODO
 #
@@ -9,8 +9,8 @@ package CIPP;
 use strict;
 use vars qw ( $INCLUDE_SUBS $VERSION $REVISION );
 
-$VERSION = "2.30";
-$REVISION = q$Revision: 1.1.1.1 $; 
+$VERSION = "2.37";
+$REVISION = q$Revision: 1.15 $; 
 $INCLUDE_SUBS = 0;
 
 use Config;
@@ -31,13 +31,14 @@ $CIPP::cipp_single_tags =
 	"|htmlquote|urlencode|hiddenfields|img|dump".
 	"|input|geturl|interface|lib|incinterface|getparam|getparamlist".
 	"|getdbhandle|autoprint|!autoprint|apredirect|apgetrequest|exit|use|require".
-	"|!profile".
+	"|!profile|".
 # aus Kompatibiltätsgründen
 	"|imgurl|cgiurl|docurl|cgiform|";
 
 # alle Tags, die wieder geschlossen werden muessen
 $CIPP::cipp_multi_tags  =
-	"|if|var|do|while|perl|sql|try|catch|block|foreach".
+	"||".	# Achtung sieht seltsam aus, ist aber der <?> Befehl
+	"if|var|do|while|perl|sql|try|catch|block|foreach".
 	"|form|a|textarea|sub|module|html|select|option|!httpheader|#|!#|";
 
 # Hash-Array fuer alle Tags, als Value wird der Name der behandelnden
@@ -94,6 +95,7 @@ $CIPP::cipp_multi_tags  =
 		"use",		"Process_Use",
 		"require",	"Process_Require",
 		"dump",		"Process_Dump",
+		"",		"Process_Expression",
 		"!profile",	"Process_Profile",
 		"!httpheader",	"Process_Httpheader",
 		"!#",		"Process_Comment",
@@ -616,6 +618,186 @@ sub Generate_CGI_Code {
 
 	my $apache_mod = $self->{apache_mod};
 	
+	# Perl Interpreter wenn nicht im Apache Modus
+	$self->{target}->Write ("#!$self->{perl_interpreter_path}\n")
+		if not $apache_mod;
+
+	# wir tummeln uns im CIPP_Exec package
+	$self->{target}->Write ("package CIPP_Exec;\n");
+
+	# wenn gefordert, use strict einbauen
+	my $use_strict = '';
+	if ( $self->{use_strict} ) {
+		$use_strict = "use strict;\n";
+	}
+
+	# CGI Parameter importieren, wenn keine Parameter definiert und kein "use strict"
+	my $package_import = '';
+	if ( not defined $self->{cgi_input} and not defined $self->{cgi_optional}
+	     and not $self->{use_strict}) {
+		$package_import = q[$cipp_query->import_names('CIPP_Exec');];
+	}
+
+	# Headercode generieren
+	$self->{target}->Write ($use_strict);
+	if ( $apache_mod ) {
+		$self->{target}->Write (
+			'$CIPP_Exec::apache_mod = 1;'."\n".
+			'$CIPP_Exec::apache_program = "'.$self->{call_path}.'";'."\n".
+			'$CIPP_Exec::apache_request = $cipp_apache_request;'."\n"
+		);
+		
+		if ( $INCLUDE_SUBS ) {
+			$self->{target}->Write (
+				"use CIPP::Request;\n".
+				'my $cipp_request_object = new CIPP::Request ($cipp_apache_request);'."\n"
+			);
+		}
+	}
+	
+	if ( not $apache_mod ) {
+#---
+# The # sign after the BEGIN below tells new.spirit, that
+# this BEGIN block may not be stripped before syntax checking
+# A bit fishy, but...
+#---
+
+
+		$self->{target}->Write (
+q[
+# this BEGIN block is executed only once under mod_perl
+BEGIN {#
+	if ( not $CIPP_Exec::_cipp_in_execute ) {
+		$0 =~ m!^(.*)[/\\\\][^/\\\\]+$!;chdir $1;
+	}
+].qq[
+	\$cipp::back_prod_path="$self->{back_prod_path}";
+].q[
+	do "$cipp::back_prod_path/config/cipp.conf";
+	unshift (@INC, "$cipp::back_prod_path/cgi-bin");
+	unshift (@INC, "$cipp::back_prod_path/lib");
+	unshift (@INC, @CIPP_Exec::cipp_perl_lib_dir)
+		if @CIPP_Exec::cipp_perl_lib_dir;
+	($cipp::under_mod_perl = $ENV{'GATEWAY_INTERFACE'} =~ /^CGI-Perl/);
+	$cipp::prevent_mod_perl_double_init = 1;
+}
+
+# In a mod_perl Environment the base configuration *must* be loaded
+# for *each* request.
+if ( $cipp::under_mod_perl and $cipp::prevent_mod_perl_double_init++ != 1 ) {
+].qq[
+	\$cipp::back_prod_path="$self->{back_prod_path}";
+].q[
+	do "$cipp::back_prod_path/config/cipp.conf";
+	unshift (@INC, "$cipp::back_prod_path/cgi-bin");
+	unshift (@INC, "$cipp::back_prod_path/lib");
+	unshift (@INC, @CIPP_Exec::cipp_perl_lib_dir)
+		if @CIPP_Exec::cipp_perl_lib_dir;
+}
+]);
+	}
+
+	$self->{target}->Write (
+qq[
+my \$cipp_query;
+if ( ! defined \$CIPP_Exec::_cipp_in_execute ) {
+	use CIPP::Runtime 0.36;
+	use CGI;
+	package CIPP_Exec;
+	\$cipp_query = new CGI;
+	$package_import
+}
+]);
+
+	$self->{target}->Write (
+qq[
+eval { # CIPP-GENERAL-EXCEPTION-EVAL
+package CIPP_Exec;
+# Debugging
+# CIPP::Runtime::init_request();
+]);
+
+	# Datenbankcode generieren
+	
+	$self->Generate_Database_Code ();
+
+	# HTTP Header
+
+	$self->Generate_HTTP_Header_Code ();
+
+	# explizites Importieren von CGI Parameter, wenn $cgi_input
+	# angegeben wurde, sonst Importieren in den Namespace über
+	# CGI->import_names()
+
+	if ( $self->{cgi_input} ) {
+		if ( scalar @{$self->{cgi_input}} ) {
+			$self->{target}->Write ("my \@cipp_missing_input;\n");
+		}
+
+		my ($var, $var_name);
+		foreach $var (@{$self->{cgi_input}}) {
+			($var_name = $var) =~ s/[\$\@]//g;
+			$self->{target}->Write (
+				"my $var = \$cipp_query->param('$var_name');\n".
+				"push \@cipp_missing_input, '$var_name' ".
+				"if ! defined $var;\n"
+			);
+		}
+		if ( scalar @{$self->{cgi_input}} ) {
+			$self->{target}->Write (
+				"if ( scalar(\@cipp_missing_input) ) {\n".
+				"	die \"CGI_INPUT\tEs fehlen folgende Eingabeparameter:<P>\".\n".
+				"	join (', ', \@cipp_missing_input).\"<P>\n\";\n}\n"
+			);
+		}
+		foreach $var (@{$self->{cgi_optional}}) {
+			($var_name = $var) =~ s/[\$\@]//g;
+			$self->{target}->Write (
+				"my $var = \$cipp_query->param('$var_name');\n"
+			);
+		}
+	}
+	
+	# Footercode generieren
+	$self->{output}->Write (
+		 q[$CIPP_Exec::cipp_http_header_printed = 0;]."\n".
+		qq[}; # CIPP-GENERAL-EXCEPTION-EVAL;]."\n".
+		qq[end_of_cipp_program:]."\n".
+		 q[my $cipp_general_exception = $@;]."\n"
+	);
+
+	if ( not $apache_mod ) {
+		$self->{output}->Write (
+			"die \$cipp_general_exception if \$cipp_general_exception ".
+			"and \$CIPP_Exec::_cipp_in_execute;\n".
+			"CIPP::Runtime::Exception(\$cipp_general_exception) if \$cipp_general_exception;\n"
+		);
+	} else {
+		$self->{output}->Write (
+			"die \$cipp_general_exception if \$cipp_general_exception;\n"
+		);
+	}
+}
+
+sub Generate_CGI_Code_old_version {
+	my $self = shift;
+	return if ! $self->{init_status};
+	
+	# Sonderregelung für CIPP Module: die brauchen so oder so ein 'use strict'
+	# und ggf. Database_Code (egal ob $self->{write_script_header} gesetzt ist).
+
+	if ( $self->{result_type} eq 'cipp-module' ) {
+		if ( $self->{use_strict} ) {
+			$self->{target}->Write ("use strict;\n");
+		}
+#		$self->Generate_Database_Code ();
+		return;
+	}
+	
+	return if ! $self->{write_script_header};
+
+	my $apache_mod = $self->{apache_mod};
+	
 	$self->{target}->Write ("#!$self->{perl_interpreter_path}\n") if not $apache_mod;
 	$self->{target}->Write ("package CIPP_Exec;\n");
 	$self->{target}->Write (qq{\$cipp::back_prod_path="$self->{back_prod_path}";\n});
@@ -663,6 +845,7 @@ BEGIN {#
 		$0 =~ m!^(.*)[/\\\\][^/\\\\]+$!;chdir $1;
 	}
 ).qq[
+#	print STDERR "\\n\$\$ do \$cipp::back_prod_path/config/cipp.conf\\n";
 	do "\$cipp::back_prod_path/config/cipp.conf";
 	unshift (\@INC, "\$cipp::back_prod_path/cgi-bin");
 	unshift (\@INC, "\$cipp::back_prod_path/lib");
@@ -687,6 +870,8 @@ if ( ! defined \$CIPP_Exec::_cipp_in_execute ) {
 qq[
 eval { # CIPP-GENERAL-EXCEPTION-EVAL
 package CIPP_Exec;
+# Debugging
+CIPP::Runtime::init_request();
 ]);
 
 	# Datenbankcode generieren
@@ -947,10 +1132,16 @@ sub Preprocess {
 
 			# Start-Tag herauspopeln
 
-			($tag) = $chunk =~ /^\s*([^\s]+)/;	# Tag holen
-			my $orig_tag = $tag;
-			$orig_tag =~ s/^\///;
-			$tag =~ tr/A-Z/a-z/;			# klein machen
+			my $orig_tag;
+#			if ( $chunk =~ /^\s*"/) {
+#				$orig_tag = '"';
+#				$tag = '"';
+#			} else {
+				($tag) = $chunk =~ /^\s*([^\s]*)/;	# Tag holen
+				$orig_tag = $tag;
+				$orig_tag =~ s/^\///;
+				$tag =~ tr/A-Z/a-z/;			# klein machen
+#			}
 
 			# Pruefen, ob abschliessendes > ueberhaupt gefunden
 
@@ -975,12 +1166,18 @@ sub Preprocess {
 
 			# Optionen rausholen, d.h. TAG-Bezeichner rausschneiden
 
-			($options = $chunk) =~ s/^\s*[^\s]+\s*//;
+			if ( $tag eq '"' ) {
+				$options = $chunk;
+			} else {
+				($options = $chunk) =~ s/^\s*[^\s]+\s*//;
+			}
 
 			# Ermitteln des Tag-Handlers via definiertem Hash-Array
 			my $tag_method = $CIPP::tag_handler{$tag};
 
 			if ( ! defined $tag_method ) {
+				$self->ErrorLang($tag, 'tag_unknown');
+				next PREPROCESS;
 				# kein interner CIPP Befehl, vielleicht ein Makro
 				$options .= " NAME=$orig_tag";
 				$tag = "include";
@@ -993,7 +1190,7 @@ sub Preprocess {
 			# egal ob Schachtelung OK, wir holen uns auch noch
 			# die Optionen, vielleicht gibt's hier ja auch einen
 			# Syntaxfehler
-			my $opt = Get_Options ($options);
+			my $opt = Get_Options ($options) if $tag ne '"';
 
 			if ( -1 == $opt ) {
 				$tag = "/".$tag if $end_tag;
@@ -1021,7 +1218,7 @@ sub Preprocess {
 
 				$in_print_statement =
 					$self->$tag_method ($opt, $end_tag,
-						$in_print_statement);
+						$in_print_statement, $options);
 			}
 		} else {
 			# kein CIPP-Tag im Quelltext gefunden
@@ -1347,6 +1544,58 @@ sub Process_Perl {
 
 	return 0;
 }
+
+sub Process_Expression {
+#
+# INPUT:	1. Options
+#		2. Ende-Tag?
+#
+# OUTPUT:	1. Danach innerhalb eines PRINT-Statements?
+#
+	my $self = shift;
+	my ($opt, $end_tag) = @_;
+
+	if ( $end_tag ) {
+		# Kontext vom Stack poppen
+		pop @{$self->{context_stack}};
+		
+		$self->Check_Options ("/", "", "", $opt) || return 1;
+		$self->{output}->Write (");\n");
+		return 1;
+	}
+
+	$self->Check_Options ("", "", "", $opt) || return 0;
+
+	$self->{output}->Write ("print (");
+
+	push @{$self->{context_stack}}, 'perl';
+
+	return 0;
+}
+
+
+sub Process_Expression_old {
+#
+# INPUT:	1. Options
+#		2. Ende-Tag?
+#
+# OUTPUT:	1. Danach innerhalb eines PRINT-Statements?
+#
+	my $self = shift;
+	my ($opt, $end_tag, $dummy, $options) = @_;
+
+	$options =~ s/^\s*"//;
+	$options =~ s/"\s*$//;
+
+	if ( $self->{context_stack}->[@{$self->{context_stack}}-1] eq 'perl' ) {
+		$self->{output}->Write ( $options );
+	} else {
+		$self->{output}->Write ( "print ($options);" );
+	}
+
+	return 1;
+}
+
 
 sub Process_Html {
 #
@@ -1991,6 +2240,8 @@ sub Process_Sql {
 
 	my @var;
 	if ( defined $$opt{var} ) {
+		$$opt{var} =~ s/^\s+//;
+		$$opt{var} =~ s/\s+$//;
 		@var = split (/\s*,\s*/, $$opt{var});
 		my $v;
 		foreach $v (@var) {
@@ -2555,10 +2806,12 @@ sub Process_Savefile {
 	}
 
 	my $code = "{\nno strict;\n";
+	$code .= "my \$cipp_filehandle = CGI::param($formvar);\n";
+	$code .= "die '$$opt{throw}\tParameter nicht gefunden. Keine Uploaddatei angegeben?'\n ";
+	$code .= "if not \$cipp_filehandle;\n";
 	$code .= "open (cipp_SAVE_FILE, \"> $$opt{filename}\")\n";
 	$code .= "or die \"$$opt{throw}\tDatei '$$opt{filename}' ".
 		 "kann nicht zum Schreiben geoffnet werden\";\n";
-	$code .= "my \$cipp_filehandle = CGI::param($formvar);\n";
 	$code .= "binmode cipp_SAVE_FILE;\n";
 	$code .= "binmode \$cipp_filehandle;\n";
 	$code .= "my (\$cipp_filebuf, \$cipp_read_result);\n";
@@ -3736,7 +3989,10 @@ sub Process_Exit {
 
 	$self->Check_Options ("EXIT", "", "", $opt) || return 1;
 
-	$self->{output}->Write("goto end_of_cipp_program;\n");
+	$self->{output}->Write(
+		'$@=""; '.
+		"goto end_of_cipp_program;\n"
+	);
 
 	return 1;
 }
@@ -3813,7 +4069,8 @@ sub Process_Require {
 	$self->{output}->Write(
 		qq[{ my \$cipp_mod = "$$opt{name}";\n].
 		qq[\$cipp_mod =~ s!::!/!og;\n].
-		qq[require \$cipp_mod.".pm"; $isa_code}\n]
+		qq[\$cipp_mod .= ".pm";\n].
+		qq[require \$cipp_mod; $isa_code}\n]
 	);
 
 	if ( $$opt{name} !~ /\$/ ) {
@@ -4018,8 +4275,6 @@ sub Get_Object_Type {
 
 	my $file = $self->Resolve_Object_Source ($object, undef);
 
-#	print STDERR "src='$file'\n";
-
 	my @filenames;
 
 	if ( $Config{osname} =~ /win/i ) {
@@ -4039,11 +4294,16 @@ sub Get_Object_Type {
 
 	return undef if scalar @filenames != 1;
 	$filenames[0] =~ /\.([^\.]+)$/;
+
 	my $ext = $1;
 	my $type = $ext;
 	
 	if ( $ext =~ /^(gif|jpg|jpeg|jpe|png)$/i ) {
 		$type = 'cipp-img';
+	} elsif ( $ext eq 'ns-unknown' ) {
+		$type = 'generic';
+	} elsif ( $ext =~ /^(jar|cab|class|properties)$/i ) {
+		$type = 'jar';
 	}
 
 	my $object_file = $object;
@@ -4065,6 +4325,8 @@ sub Set_Direct_Used_Object {
 	my $self = shift;
 
 	my ($object_file, $type) = @_;
+	
+#	print STDERR "used: $object_file:$type\n";
 	
 	$self->{direct_used_objects}->{"$object_file:$type"} = 1;
 }
@@ -4110,7 +4372,7 @@ sub Get_Object_URL {
 		$object_url = "\$CIPP_Exec::cipp_cgi_url/$object_path.cgi";
 	} elsif ( $object_type eq 'cipp-html' ) {
 		$object_url =  "\$CIPP_Exec::cipp_doc_url/$object_path.html";
-	} elsif ( $object_type eq 'cipp-img' ) {
+	} elsif ( $object_type eq 'cipp-img' or $object_type eq 'blob' ) {
 		my $ext;
 		if ( $object_type ne $object_ext ) {
 			# newspirit2 - kein .cipp-img mehr, sondern richtige
@@ -4129,7 +4391,22 @@ sub Get_Object_URL {
 		}
 
 		$object_url = "\$CIPP_Exec::cipp_doc_url/$object_path.$ext";
+	} elsif ( $object_type eq 'generic' ) {
+		my $file = $self->Resolve_Object_Source ($object, undef);
+		my $meta_file = "$file.$object_ext.m";
+		return if not -r $meta_file;
+		my $meta_data = do $meta_file;
+		return if not $meta_data->{install_target_dir};
+		$object_path =~ s![^/]+$!!;
+		my $filename = $meta_data->{_original_filename};
+		if ( $meta_data->{install_target_dir} eq 'htdocs' ) {
+			$object_url =  "\$CIPP_Exec::cipp_doc_url/$object_path/$filename";
+		} else {
+			$object_url = "\$CIPP_Exec::cipp_cgi_url/$object_path/$filename";
+		}
+		$object_url =~ s!/+!/!g;
 	} else {
+		$object_ext =~ s/cipp-//;
 		$object_url =  "\$CIPP_Exec::cipp_doc_url/$object_path.$object_ext";
 	}
 
