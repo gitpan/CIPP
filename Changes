@@ -1,6 +1,12 @@
-$Id: Changes,v 1.18 2001/10/30 10:02:05 joern Exp $
+$Id: Changes,v 1.19 2001/11/09 11:37:06 joern Exp $
 
 Revision history for Perl extension CIPP.
+
+2.40 Fri Nov  9 2001, joern
+	Bugfix:
+	- <?REQUIRE ISA> was broken and is still not documented
+	  in CIPP::Manual. If you provide the ISA switch and inside
+	  a <?MODULE>, this module inherits from the loaded module.
 
 2.39 Tue Oct 30 2001, joern
 	Bugfix:

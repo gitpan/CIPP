@@ -1,4 +1,4 @@
-# $Id: CIPP.pm,v 1.17 2001/10/30 10:02:05 joern Exp $
+# $Id: CIPP.pm,v 1.18 2001/11/09 11:37:06 joern Exp $
 
 # TODO
 #
@@ -9,8 +9,8 @@ package CIPP;
 use strict;
 use vars qw ( $INCLUDE_SUBS $VERSION $REVISION );
 
-$VERSION = "2.39";
-$REVISION = q$Revision: 1.17 $; 
+$VERSION = "2.40";
+$REVISION = q$Revision: 1.18 $; 
 
 $INCLUDE_SUBS = 0;
 
@@ -4069,9 +4069,10 @@ sub Process_Require {
 
 	$self->{output}->Write(
 		qq[{ my \$cipp_mod = "$$opt{name}";\n].
+		qq[$isa_code].
 		qq[\$cipp_mod =~ s!::!/!og;\n].
 		qq[\$cipp_mod .= ".pm";\n].
-		qq[require \$cipp_mod; $isa_code}\n]
+		qq[require \$cipp_mod;}\n]
 	);
 
 	if ( $$opt{name} !~ /\$/ ) {
