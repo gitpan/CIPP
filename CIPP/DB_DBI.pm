@@ -4,7 +4,7 @@
 #       CIPP::DB_DBI
 #
 # REVISION
-#	$Revision: 1.1 $
+#	$Revision: 1.6 $
 #
 # METHODEN
 #       siehe CIPP_DB.interface
@@ -76,15 +76,24 @@
 #	16.01.1999 0.5.0.0 joern
 #		+ Modul umbenannt von CIPP_DB_DBI nach CIPP::DB_DBI
 #
+#	17.03.1999 0.51 joern
+#		+ zunächst wird kein persistenter Datenbankcode erzeugt,
+#		  auch wenn dies beim Konstruktor angegeben wird.
+#
+#	20.06.1999 0.52 joern
+#		+ back_prod_path wird dynamisch anhand der Variablen
+#		  $cipp_back_prod_path eingesetzt
+#
 #------------------------------------------------------------------------------
 
 package CIPP::DB_DBI;
 
-$REVISION = q$Revision: 1.1 $;
+$VERSION = "0.51";
+$REVISION = q$Revision: 1.6 $;
 
 sub new {
 	my ($type) = shift;
-	my ($db_name, $back_prod_path, $persistent) = @_;
+	my ($db_name, $persistent) = @_;
 
 	my $pkg;	
 	($pkg = $db_name) =~ tr/./_/;
@@ -92,7 +101,6 @@ sub new {
 			# Attribute, die jeder CIPP-DB-Driver hat
 			"db_name" => $db_name,
 			"pkg" => "\$cipp_db_$pkg",
-			"back_prod_path" => $back_prod_path,
 			"persistent" => $persistent,
 			"type" => undef,		# single | select,
 
@@ -128,15 +136,16 @@ sub Open {
 #		$require = "\$CIPP_Exec::apache_request->warn('connecting database')";
 
 	} else {
-		$require = "require '$back_prod_path/config/${db_name}.db-conf'";
+		$require = qq{require "\$cipp_back_prod_path/config/${db_name}.db-conf"};
 	}
 	
 	my $code;
 	if ( $self->{dbi_version} ne '0.73' ) {
 		$code = qq
+#[
+#if ( not defined ${pkg}::dbh or not ${pkg}::dbh->ping ) {
 [
-if ( not defined ${pkg}::dbh or not ${pkg}::dbh->ping ) {
-	use DBI; # Version $self->{dbi_version}
+	use DBI;
 	$require;
 	${pkg}::dbh = DBI->connect (
 	${pkg}::data_source,
@@ -144,13 +153,15 @@ if ( not defined ${pkg}::dbh or not ${pkg}::dbh->ping ) {
 	${pkg}::password,
 	{ PrintError => 0 } );
 	die "sql_open\t\$DBI::errstr" if \$DBI::errstr;
-}
 ]
+#}
+#]
 	} else {
 		$code = qq
+#[
+#if ( not defined ${pkg}::dbh ) {
 [
-if ( not defined ${pkg}::dbh ) {
-	use DBI; # Version $self->{dbi_version}
+	use DBI;
 	$require;
 	my \$source = ${pkg}::data_source;
 	\$source =~ /^dbi:([^:]+)/;
@@ -163,8 +174,9 @@ if ( not defined ${pkg}::dbh ) {
 	${pkg}::password
 	);
 	die "sql_open\t\$DBI::errstr" if \$DBI::errstr;
-}
 ]
+#}
+#]
 	}
 
 	$code .= qq
@@ -181,15 +193,18 @@ sub Close {
 	my $db_name = $self->{db_name};
 	my $pkg = $self->{pkg};
 
-	my $code = qq[if ( not ${pkg}::dbh->{AutoCommit} ) {\n].
+	my $code = qq[eval{\n].
+		   qq[if ( ${pkg}::dbh and not ${pkg}::dbh->{AutoCommit} ) {\n].
 		   qq[\t${pkg}::dbh->rollback;\n}\n];
 
 	if ( not $self->{persistent} ) {
-		$code .= "${pkg}::dbh->disconnect();\n${pkg}::dbh=undef;";
+		$code .= "${pkg}::dbh->disconnect() if ${pkg}::dbh;\n${pkg}::dbh=undef;\n";
 	} else {
 		$code .= "# persistence: no dbh->disconnect\n";
 	}
 	
+	$code .= "\n};\n";
+
 	return $code;
 }
 
@@ -223,13 +238,13 @@ sub Begin_SQL {
 
 		$self->{type} = "select";
 		$var = "\$".join (", \$", @var);
-		$code = '';
+
 		$code =  qq {my ($var);\n} if $gen_my;
-		$code .= qq {${pkg}_sth = }.
-			 qq {${pkg}::dbh->prepare ( qq{$sql} );}."\n".
-			 qq {die "$throw\t\$DBI::errstr" if \$DBI::errstr;}. "\n";
+		$code .= qq {my \$cipp_sql_code = qq{$sql}; ${pkg}_sth = }.
+			 qq {${pkg}::dbh->prepare ( \$cipp_sql_code );}."\n".
+			 qq {die "$throw\t\$DBI::errstr\n\$cipp_sql_code" if \$DBI::errstr;}. "\n";
 		$code .= qq {${pkg}_sth->execute($bind_list);}."\n".
-			 qq {die "$throw\t\$DBI::errstr" if defined \$DBI::errstr;}."\n";
+			 qq {die "$throw\t\$DBI::errstr\n\$cipp_sql_code" if defined \$DBI::errstr;}."\n";
 
 		if ( defined $maxrows ) {
 			$code .= qq {${pkg}_maxrows=$maxrows;\n};
@@ -257,14 +272,14 @@ sub Begin_SQL {
 		}
 
 		$self->{type} = "single";
+		$code = "my \$cipp_sql_code = qq{$sql};\n";
 		if ( defined $result ) {
 			$result = "\$".$result if $result !~ /^\$/;
-			$code = '';
-			$code = 'my ' if $gen_my;
+			$code .= 'my ' if $gen_my;
 			$code .= qq{$result = };
 		}
-		$code .= qq{${pkg}::dbh->do( qq{$sql} $bind_list);}."\n";
-		$code .= qq{die "$throw\t\$DBI::errstr" if defined \$DBI::errstr;}."\n";
+		$code .= qq{${pkg}::dbh->do( \$cipp_sql_code $bind_list);}."\n";
+		$code .= qq{die "$throw\t\$DBI::errstr\n\$cipp_sql_code" if defined \$DBI::errstr;}."\n";
 	}
 
 	return $code;
@@ -353,3 +368,31 @@ sub Get_DB_Handle {
 
 
 1;
+__END__
+
+=head1 NAME
+
+CIPP::DB_DBI - CIPP database module to generate DBI code
+
+=head1 DESCRIPTION
+
+CIPP has a database code abstraction layer, so it can
+generate code to access databases via different interfaces.
+
+This module is used by CIPP to generate code to access
+databases via DBI, version >= 0.93.
+
+=head1 AUTHOR
+
+Jörn Reder, joern@dimedis.de
+
+=head1 COPYRIGHT
+
+Copyright 1997-1999 dimedis GmbH, All Rights Reserved
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.
+
+=head1 SEE ALSO
+
+perl(1), CIPP (3pm)

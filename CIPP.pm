@@ -1,23 +1,30 @@
 package CIPP;
 
-$VERSION = "1.93";
-$REVISION = q$Revision: 1.18 $; 
+#$Id: CIPP.pm,v 1.16 1999/07/07 09:16:52 joern Exp $
+
+$VERSION = "2.0.9";
+$REVISION = q$Revision: 1.16 $; 
 
 use strict;
+use Config;
+use File::Basename;
 use CIPP::InputHandle;
 use CIPP::OutputHandle;
 use CIPP::DB_DBI;
 use CIPP::DB_DBI_old;
 use CIPP::DB_Sybase;
 
+my %INCLUDE_CACHE;	# Cache für Include CIPP Objekte
+
 
 # alle Tags, die nicht geschlossen werden
+$CIPP::cipp_single_tags = undef;
 $CIPP::cipp_single_tags =
 	"|else|elsif|include|log|throw|autocommit".
 	"|execute|dbquote|commit|rollback|my|savefile|config".
 	"|htmlquote|urlencode|hiddenfields|img|".
 	"|input|geturl|interface|lib|incinterface|getparam|getparamlist".
-	"|getdbhandle|autoprint|apredirect|apgetrequest".
+	"|getdbhandle|autoprint|apredirect|apgetrequest|exit".
 # aus Kompatibiltätsgründen
 	"|imgurl|cgiurl|docurl|cgiform|";
 
@@ -70,6 +77,7 @@ $CIPP::cipp_multi_tags  =
 		"apredirect",	"Process_Apredirect",
 		"apgetrequest",	"Process_Apgetrequest",
 		"sub",		"Process_Sub",
+		"exit",		"Process_Exit",
 # aus Kompatiblitätsgründen
 		"imgurl",	"Process_Imgurl",
 		"cgiurl",	"Process_Cgiurl",
@@ -79,6 +87,7 @@ $CIPP::cipp_multi_tags  =
 
 
 # requlärer Ausdruck zum URL Codieren
+$CIPP::URL_Encode_Expression = undef;
 $CIPP::URL_Encode_Expression =
 		q{s/(\W)/(ord($1)>15)?}.
                 q{(sprintf("%%%x",ord($1))):}.
@@ -91,7 +100,7 @@ sub new {
 	my ($source, $target, $project_hash, $database_hash, $mime_type,
 	    $default_db, $call_path, $skip_header_line, $debugging,
 	    $result_type, $use_strict, $persistent, $apache_mod,
-	    $project) = @_;
+	    $project, $use_inc_cache) = @_;
 
 	# Defaults setzen
 	$result_type ||= 'cipp';
@@ -150,7 +159,9 @@ sub new {
 			"inc_nooutput" => undef,
 			"persistent" => $persistent,
 			"apache_mod" => $apache_mod,
-			"project" => $project
+			"project" => $project,
+			"use_inc_cache" => $use_inc_cache,
+			"perl_interpreter_path" => $Config{'perlpath'}
 	};
 
 	# Wir gehen mal davon aus, dass alles geklappt hat, pruefen
@@ -535,11 +546,13 @@ sub Generate_CGI_Code {
 	return if ! $self->{init_status};
 	return if ! $self->{write_script_header};
 
-	my $back_prod_path = $self->{back_prod_path};
 	my $apache_mod = $self->{apache_mod};
 	
-	$self->{target}->Write ("#!/usr/local/bin/perl\n") if not $apache_mod;
+	$self->{target}->Write ("#!$self->{perl_interpreter_path}\n") if not $apache_mod;
 	$self->{target}->Write ("package CIPP_Exec;\n");
+	$self->{target}->Write (qq{my \$cipp_back_prod_path;\n});
+	$self->{target}->Write (qq[BEGIN{\$cipp_back_prod_path="$self->{back_prod_path}";}\n]);
+
 	
 	# wenn gefordert, use strict einbauen
 	my $use_strict = '';
@@ -567,18 +580,14 @@ sub Generate_CGI_Code {
 q(
 local @INC = @INC;
 BEGIN {
-	require Config;
-	if ( $Config::Config{'osname'} =~ /win/i and
-	     not defined $CIPP_Exec::_cipp_in_execute ) {
-		my $dir = $0;
-		$dir =~ s![^/\\\]*$!!;
-		chdir $dir;
+	if ( not $CIPP_Exec::_cipp_in_execute ) {
+		$0 =~ m!^(.*)[/\\\\][^/\\\\]+$!;chdir $1;
 	}
 ).qq[
-	unshift (\@INC, "$back_prod_path/cgi-bin");
-	unshift (\@INC, "$back_prod_path/lib");
+	unshift (\@INC, "\$cipp_back_prod_path/cgi-bin");
+	unshift (\@INC, "\$cipp_back_prod_path/lib");
 }
-require '$back_prod_path/config/cipp.conf';
+require "\$cipp_back_prod_path/config/cipp.conf";
 ]);
 	}
 	$self->{target}->Write (
@@ -592,28 +601,30 @@ if ( ! defined \$CIPP_Exec::_cipp_in_execute ) {
 	$package_import
 }
 ]);
-	if ( not $apache_mod ) {
-		$self->{target}->Write (
-qq[	
-eval { # CIPP-GENERAL-EXCEPTION-EVAL
-]);
-	}
+#	if ( not $apache_mod ) {
+#		$self->{target}->Write (
+#qq[	
+#eval { # CIPP-GENERAL-EXCEPTION-EVAL
+#]);
+#	}
 	$self->{target}->Write (
 qq[
+eval { # CIPP-GENERAL-EXCEPTION-EVAL
 package CIPP_Exec;
 ]);
 	if ( $self->{print_content_type} and 
 	     $self->{mime_type} ne 'cipp/dynamic' ) {
 		$self->{target}->Write (
 			"print \"Content-type: ".$self->{mime_type}.
-			"\\n\\n\" if not \$CIPP_Exec::_cipp_no_http;\n");
+			"\\nPragma: no-cache\\n\\n\" if not \$CIPP_Exec::_cipp_no_http;\n");
 
 		$self->{target}->Write (
 			q{$CIPP_Exec::cipp_http_header_printed = 1;}."\n");
 	}
 #	print STDERR "mime_type=$self->{mime_type}\n";
 	
-		if ( $self->{mime_type} eq 'text/html' and not $apache_mod ) {
+		if ( $self->{mime_type} eq 'text/html' and not $apache_mod 
+		     and not $self->{autoprint_off} ) {
 			$self->{target}->Write ( 
 				"print \"<!-- generated with CIPP ".
 				$self->{version}."/$CIPP::REVISION, ".
@@ -656,16 +667,29 @@ package CIPP_Exec;
 	
 	# Footercode generieren
 	$self->{output}->Write (
-		q[$CIPP_Exec::cipp_http_header_printed = 0;].
-		"\n"
+		 q[$CIPP_Exec::cipp_http_header_printed = 0;]."\n".
+		qq[}; # CIPP-GENERAL-EXCEPTION-EVAL;]."\n".
+		qq[end_of_cipp_program:]."\n".
+		 q[my $cipp_general_exception = $@;]."\n"
 	);
+
+	# Datenbankcode generieren
+
+	$self->Generate_Database_Code ();
+
 	if ( not $apache_mod ) {
 		$self->{output}->Write (
-			"}; # CIPP-GENERAL-EXCEPTION-EVAL\n".
-			"die \$\@ if \$\@ and \$CIPP_Exec::_cipp_in_execute;\n".
-			"CIPP::Runtime::Exception(\$\@) if \$\@;\n"
+#			"}; # CIPP-GENERAL-EXCEPTION-EVAL\n".
+			"die \$cipp_general_exception if \$cipp_general_exception ".
+			"and \$CIPP_Exec::_cipp_in_execute;\n".
+			"CIPP::Runtime::Exception(\$cipp_general_exception) if \$cipp_general_exception;\n"
 		);
-	};
+	} else {
+		$self->{output}->Write (
+#			"}; # CIPP-GENERAL-EXCEPTION-EVAL\n".
+			"die \$cipp_general_exception if \$cipp_general_exception;\n"
+		);
+	}
 }
 
 sub Generate_Database_Code {
@@ -701,7 +725,7 @@ qq{
 		return if not $driver;
 		
 		my $dbph = $driver->new(
-			$db, $self->{back_prod_path}, $self->{persistent}
+			$db
 		);
 		$self->{target}->Write ( $dbph->Open ( no_config_require => $apache_mod ));
 		$self->{output}->Write ( $dbph->Close );
@@ -728,6 +752,8 @@ sub Preprocess {
 	my $in_print_statement = 1;
 	my ($found, $tag, $options, $end_tag, $error, $from_line, $to_line);
 
+	$self->{gen_print} = $self->{mime_type} eq 'cipp/dynamic' ? 0 : 1;
+
 	PREPROCESS: while ( 1 ) {
 
 		# wenn als Mime-Type 'cipp/dynamic' angegeben wurde, wird kein HTTP
@@ -738,7 +764,7 @@ sub Preprocess {
 		# Wir machen das für jeden CIPP-Befehl, da sich dieser Zustand
 		# während der Übersetzung ändern kann (=> <?AUTOPRINT>)
 	
-		my $gen_print = $self->{mime_type} eq 'cipp/dynamic' ? 0 : 1;
+		my $gen_print = $self->{gen_print};
 
 		$from_line = $self->{input}->Get_Line_Number()+1;
 		$chunk = $self->{input}->Read_Cond($magic,1);
@@ -836,7 +862,8 @@ sub Preprocess {
 				# Aufruf der entsprechenden Process_* Methode
 
 				$in_print_statement =
-					$self->$tag_method ($opt, $end_tag);
+					$self->$tag_method ($opt, $end_tag,
+						$in_print_statement);
 			}
 		} else {
 			# kein CIPP-Tag im Quelltext gefunden
@@ -864,15 +891,22 @@ sub Preprocess {
 				$self->{nest_tag_line}[$i]);
 		}
 	} else {
-		# Code fuer Header generieren
+		# Code fuer Header / Footer und Datenbank generieren
 
 		$self->Generate_CGI_Code();
-		$self->Generate_Database_Code ();
+#		$self->Generate_Database_Code ();
 
 		# generierten Perl-Code in die Zieldatei schreiben
 
 		$self->{target}->Write (${$self->{perl_code}});
 	}
+
+	# wenn <?AUTOPRINT> vorgekommen ist, muß der Mime Type
+	# nachträglich noch auf cipp/dynamic gesetzt werden
+	# Das darf erst jetzt gemacht werden, weil sonst evtl.
+	# INCLUDES fälschlicherweise von cipp/dynamic ausgehen
+	
+	$self->{mime_type} = 'cipp/dynamic' if $self->{autoprint_off};
 
 #	print STDERR "Preprocess (", $self->{obj_nr}, ") END\n";
 }
@@ -1189,7 +1223,7 @@ sub Process_Include {
 # OUTPUT:	1. Danach innerhalb eines PRINT-Statements?
 #
 	my $self = shift;
-	my ($opt, $end_tag) = @_;
+	my ($opt, $end_tag, $in_print_statement) = @_;
 
 	$self->Check_Options ("INCLUDE", "NAME", "*", $opt) || return 1;
 
@@ -1206,8 +1240,8 @@ sub Process_Include {
 
 	my $name = $$opt{name};
 	delete $$opt{name};
-	my $my = $$opt{my};
-	delete $$opt{my};
+	my $my = $$opt{'my'};
+	delete $$opt{'my'};
 
 	# Ausgabeparameter aus $opt aussortieren
 	
@@ -1243,26 +1277,53 @@ sub Process_Include {
 
 	# Präprozessor initialisieren
 
-	my $code;
-	my $MACRO = new CIPP
-		($macro_file, \$code, $self->{projects},
-		 $self->{db_driver}, $self->{mime_type},
-		 $self->{default_db}, $self->{call_path}.
-		 "[".$self->{input}->Get_Line_Number."]:".$name,
-		 $self->{skip_header_line}, $self->{debugging},
-		 $self->{result_type}, $self->{use_strict},
-		 $self->{persistent}, $self->{apache_mod},
-		 $self->{project});
+	my $code;	# Perl Code des Includes
+	my $MACRO;	# CIPP Object für Include
 
-	if ( ! $MACRO->Get_Init_Status ) {
-		$self->Error ("INCLUDE", "Interner Fehler bei CIPP Init");
-		return 1;
+	my $need_to_preprocess = 1;
+
+	if ( $self->{use_inc_cache} ) {
+		# Cache ist eingeschaltet
+		if ( exists $INCLUDE_CACHE{$name} ) {
+			# unser Objekt ist im Cache, fein!
+			$MACRO = $INCLUDE_CACHE{$name}->{cipp_object};
+			$code  = ${$INCLUDE_CACHE{$name}->{code}};
+			$need_to_preprocess = 0;
+		}
 	}
 
-	# Übersetzen des Macros
+	if ( $need_to_preprocess ) {
+		$MACRO = new CIPP
+			($macro_file, \$code, $self->{projects},
+			 $self->{db_driver}, $self->{mime_type},
+			 $self->{default_db}, $self->{call_path}.
+			 "[".$self->{input}->Get_Line_Number."]:".$name,
+			 $self->{skip_header_line}, $self->{debugging},
+			 $self->{result_type}, $self->{use_strict},
+			 $self->{persistent}, $self->{apache_mod},
+			 $self->{project}, $self->{use_inc_cache});
 
-	$MACRO->Set_Write_Script_Header (0);
-	$MACRO->Preprocess ();
+		if ( ! $MACRO->Get_Init_Status ) {
+			$self->Error ("INCLUDE", "Interner Fehler bei CIPP Init");
+			return 1;
+		}
+
+		# Übersetzen des Macros
+
+		$MACRO->Set_Write_Script_Header (0);
+		$MACRO->Preprocess ();
+		
+		# wenn Cache eingeschaltet: Cachen!
+		
+		if ( $self->{use_inc_cache} ) {
+			$INCLUDE_CACHE{$name}->{cipp_object} = $MACRO;
+			$INCLUDE_CACHE{$name}->{code} = \$code;
+			# input File schliessen
+			# (die werden sonst erst beim Script Ende
+			# geschlossen, da kommt man schnell ans 'ulimit -n')
+			$MACRO->{input} = undef;
+		}
+	}
 
 	# Ist die Übergabe von Parametern verboten, es wurden aber
 	# doch welche angegeben?
@@ -1436,10 +1497,10 @@ sub Process_Include {
 	}
 
 	# Hash der benutzten Configs aus der Liste des Macros aktualisieren
-	my $image;
+	my $config;
 	if ( defined $MACRO->Get_Used_Configs() ) {
-		while ( ($image, $foo) = each %{$MACRO->Get_Used_Configs()} ) {
-			$self->{used_configs}{$image} = 1;
+		while ( ($config, $foo) = each %{$MACRO->Get_Used_Configs()} ) {
+			$self->{used_configs}{$config} = 1;
 		} 
 	}
 
@@ -1502,7 +1563,7 @@ sub Process_Include {
 		"}\n"
 	);
 
-	return 1;
+	return $in_print_statement;
 }
 
 sub Process_Else {
@@ -1548,7 +1609,7 @@ sub Process_Sql {
 # OUTPUT:	1. Danach innerhalb eines PRINT-Statements?
 #
 	my $self = shift;
-	my ($opt, $end_tag) = @_;
+	my ($opt, $end_tag, $in_print_statement) = @_;
 
 	if ( $end_tag ) {
 		# wenn {driver_used} nicht existiert, war vorher ein Syntax-
@@ -1558,7 +1619,7 @@ sub Process_Sql {
 			$self->{output}->Write ($self->{driver_used}->End_SQL());
 		}
 		$self->{driver_used} = undef;
-		return 1;
+		return $in_print_statement;
 	}
 
 	if ( defined $self->{driver_used} ) {
@@ -1620,16 +1681,16 @@ sub Process_Sql {
 	
 	$$opt{throw} ||= "sql";
 
-	$self->{driver_used} = $driver->new($db, $self->{back_prod_path});
+	$self->{driver_used} = $driver->new($db);
 
 	$self->{output}->Write (
 		$self->{driver_used}->Begin_SQL
 			($$opt{sql}, $$opt{result}, $$opt{throw},
 			 $$opt{maxrows}, $$opt{winstart}, $$opt{winsize},
-			 $$opt{my}, \@input, @var)
+			 $$opt{'my'}, \@input, @var)
 	);
 
-	return 1;
+	return $in_print_statement;
 }
 
 sub Process_Commit {
@@ -1655,7 +1716,7 @@ sub Process_Commit {
 		return 1;
 	}
 
-	my $dr = $driver->new($db, $self->{back_prod_path});
+	my $dr = $driver->new($db);
 
 	$$opt{throw} ||= "commit";
 
@@ -1687,7 +1748,7 @@ sub Process_Rollback {
 		return 1;
 	}
 
-	my $dr = $driver->new($db, $self->{back_prod_path});
+	my $dr = $driver->new($db);
 
 	$$opt{throw} ||= "rollback";
 
@@ -1728,7 +1789,7 @@ sub Process_Autocommit {
 	my $status = 1;
 	$status = 0 if defined $$opt{off};
 
-	my $dr = $driver->new($db, $self->{back_prod_path});
+	my $dr = $driver->new($db);
 
 	$$opt{throw} ||= "autocommit";
 
@@ -1763,9 +1824,9 @@ sub Process_Getdbhandle {
 
 	$$opt{var} = '$'.$$opt{var} if $$opt{var} !~ /^\$/;
 
-	my $dr = $driver->new($db, $self->{back_prod_path});
+	my $dr = $driver->new($db);
 
-	$self->{output}->Write ($dr->Get_DB_Handle($$opt{var}, $$opt{my}));
+	$self->{output}->Write ($dr->Get_DB_Handle($$opt{var}, $$opt{'my'}));
 
 	return 1;
 }
@@ -1786,6 +1847,9 @@ sub Process_Execute {
 		$self->Error ("EXECUTE", "Der EXECUTE Befehl wird z.Zt. im Apache-Modus nicht unterstützt");
 		return 1;
 	}
+
+	$self->Error ("EXECUTE", "Der EXECUTE Befehl ist in dieser Version nicht implementiert");
+	return 1;
 
 	$self->Check_Options ("EXECUTE", "NAME", "*", $opt);
 
@@ -1821,7 +1885,7 @@ sub Process_Execute {
 
 	if ( defined $$opt{var} ) {
 		$$opt{var} = '$'.$$opt{var} if $$opt{var} !~ /^\$/;
-		$code .= qq{my $$opt{var};\n} if $$opt{my};
+		$code .= qq{my $$opt{var};\n} if $$opt{'my'};
 		$code .= qq{CIPP::Runtime::Execute}.
 			 qq{("$name",}.
 			 qq{\\$$opt{var},"$throw");\n};
@@ -1873,10 +1937,10 @@ sub Process_Dbquote {
 	my $driver = $self->{db_driver}{$db};
 	$driver =~ s/CIPP_/CIPP::/;
 
-	my $dh = $driver->new ($db, $self->{back_prod_path});
+	my $dh = $driver->new ($db);
 
 	$self->{output}->Write (
-		$dh->Quote_Var ($$opt{var}, $$opt{dbvar}, $$opt{my})
+		$dh->Quote_Var ($$opt{var}, $$opt{dbvar}, $$opt{'my'})
 	);
 
 	return 1;
@@ -1932,16 +1996,16 @@ sub Process_Catch {
 		return 1;
 	}
 	my $my = '';
-	$my = 'my ' if defined $$opt{my};
+	$my = 'my ' if defined $$opt{'my'};
 	
 	if ( defined $$opt{excvar} ) {
                 $$opt{excvar} = "\$".$$opt{excvar} if $$opt{excvar} !~ /^\$/;
-		$self->{output}->Write ("${my}$$opt{excvar} = \$cipp_exception;\n");
+		$self->{output}->Write ("$my$$opt{excvar} = \$cipp_exception;\n");
 	}
 
 	if ( defined $$opt{msgvar} ) {
                 $$opt{msgvar} = "\$".$$opt{msgvar} if $$opt{msgvar} !~ /^\$/;
-		$self->{output}->Write ("${my}$$opt{msgvar} = \$cipp_exception_msg;\n");
+		$self->{output}->Write ("$my$$opt{msgvar} = \$cipp_exception_msg;\n");
 	}
 
 	if ( defined $$opt{throw} ) {
@@ -2130,7 +2194,6 @@ sub Process_Config {
 	my ($opt, $end_tag) = @_;
 
 	$self->Check_Options ("CONFIG", "NAME", "NOCACHE RUNTIME THROW", $opt) || return 1;
-	my $back_prod_path = $self->{back_prod_path};
 
 	my $name = $$opt{name};
 	my $apache_mod = $self->{apache_mod};
@@ -2157,7 +2220,7 @@ sub Process_Config {
 
 	if ( not $apache_mod ) {
 		$self->{output}->Write (qq{
-		CIPP::Runtime::Read_Config("$back_prod_path/config/$name.config", "$$opt{nocache}");
+		CIPP::Runtime::Read_Config("\$cipp_back_prod_path/config/$name.config", "$$opt{nocache}");
 		});
 	} else {
 		$self->{output}->Write (qq{
@@ -2191,7 +2254,7 @@ sub Process_Htmlquote {
 		( $$opt{htmlvar} = $$opt{var} ) =~ s/^\$(.*)$/\$html_$1/;
 	}
 
-	my $my_cmd = $$opt{my} ? 'my ' : '';
+	my $my_cmd = $$opt{'my'} ? 'my ' : '';
 	
 	$self->{output}->Write (
 		"${my_cmd}$$opt{htmlvar}=CIPP::Runtime::HTML_Quote($$opt{var});\n"
@@ -2218,7 +2281,7 @@ sub Process_Urlencode {
 	$$opt{encvar} = '$'.$$opt{encvar} if $$opt{encvar} !~ /^\$/;
 	$$opt{var} = '$'.$$opt{var};
 
-	my $my_cmd = $$opt{my} ? 'my ' : '';
+	my $my_cmd = $$opt{'my'} ? 'my ' : '';
 
 	$self->{output}->Write (
 		qq{${my_cmd}$$opt{encvar}=CIPP::Runtime::URL_Encode($$opt{var});\n} );
@@ -2245,7 +2308,7 @@ sub Process_Foreach {
 	$self->Check_Options ("FOREACH", "VAR LIST", "MY", $opt) || return 1;
 
 	$$opt{var} = '$'.$$opt{var} if $$opt{var} !~ /^\$/;
-	$self->{output}->Write ("my $$opt{var};\n") if $$opt{my};
+	$self->{output}->Write ("my $$opt{var};\n") if $$opt{'my'};
 
 	$self->{output}->Write("foreach $$opt{var} ($$opt{list}) {\n");
 
@@ -2282,7 +2345,7 @@ sub Process_Geturl {
 	}
 
 	$$opt{urlvar}='$'.$$opt{urlvar} if $$opt{urlvar} !~ /^\$/;
-	my $my_cmd = $$opt{my} ? 'my ' : '';
+	my $my_cmd = $$opt{'my'} ? 'my ' : '';
 
 	my $object_url;
 	
@@ -2962,7 +3025,7 @@ sub Process_Getparam {
 	my $var = $$opt{var};
 	if ( not defined $var ) {
 		$var = '$'.$$opt{name};
-		$$opt{my} = 1;
+		$$opt{'my'} = 1;
 	}
 
 	if ( $var !~ /^[\$\@]/ ) {
@@ -2973,7 +3036,7 @@ sub Process_Getparam {
 		return 1;
 	}
 
-	my $my = $$opt{my} ? 'my' : '';
+	my $my = $$opt{'my'} ? 'my' : '';
 
 	$self->{output}->Write("$my $var = \$cipp_query->param(\"$$opt{name}\");\n");
 
@@ -3003,7 +3066,7 @@ sub Process_Getparamlist {
 		return 1;
 	}
 
-	my $my = $$opt{my} ? 'my' : '';
+	my $my = $$opt{'my'} ? 'my' : '';
 
 	$self->{output}->Write("$my $var = \$cipp_query->param();\n");
 
@@ -3020,9 +3083,16 @@ sub Process_Autoprint {
 	my $self = shift;
 	my ($opt, $end_tag) = @_;
 
-	$self->Check_Options ("AUTOPRINT", "OFF", "", $opt) || return 1;
+	$self->Check_Options ("AUTOPRINT", "", "OFF ON", $opt) || return 1;
 
-	$self->{mime_type} = "cipp/dynamic";
+	if ( $$opt{off} ) {
+		$self->{gen_print} = 0;
+		$self->{autoprint_off} = 1;
+	}
+	
+	if ( $$opt{on} ) {
+		$self->{gen_print} = 1;
+	}
 
 	return 1;
 }
@@ -3061,13 +3131,29 @@ sub Process_Apgetrequest {
 	$self->Check_Options ("APGETREQUEST", "VAR", "MY", $opt) || return 1;
 
 	my $var = $$opt{var};
-	my $my = $$opt{my} ? 'my' : '';
+	my $my = $$opt{'my'} ? 'my' : '';
 
 	$self->{output}->Write("$my $var = \$cipp_apache_request;\n");
 
 	return 1;
 }
 
+sub Process_Exit {
+#
+# INPUT:	1. Options
+#		2. Ende-Tag?
+#
+# OUTPUT:	1. Danach innerhalb eines PRINT-Statements?
+#
+	my $self = shift;
+	my ($opt, $end_tag) = @_;
+
+	$self->Check_Options ("EXIT", "", "", $opt) || return 1;
+
+	$self->{output}->Write("goto end_of_cipp_program;\n");
+
+	return 1;
+}
 
 #---------------------------------------------------------------------------------
 
@@ -3136,10 +3222,24 @@ sub Get_Object_Type {
 
 	die "Get_Object_Type im Apache-Modus aufgerufen" if $self->{apache_mod};
 
-#	print "hallo?\n";
-
 	my $file = $self->Resolve_Object_Source ($object, undef);
-	my @filenames = <$file.*>;
+
+	my @filenames;
+
+	if ( $Config{osname} =~ /win/i ) {
+		# unter spirit/NT klappt das FileGlobbing 'n Scheiß, wenn driver.cgi
+		# von nph-make_all aufgerufen wird
+		my $dir = dirname $file;
+		my $filename = basename $file;
+		my $dh = new FileHandle;
+		opendir $dh, $dir or 
+		    die ("Verzeichnis $dir konnte nicht geoeffnet werden");
+		@filenames = grep /^$filename\.[^\.]+$/, readdir $dh;
+		closedir $dh;
+	} else {
+		@filenames = <$file.*>;
+	}
+
 	return undef if scalar @filenames != 1;
 	$filenames[0] =~ /\.([^\.]+)$/;
 	return $1;
@@ -3228,7 +3328,7 @@ sub Get_Image_Info {
 
 	return (undef) if ! defined $filename;
 
-	$filename =~ s!^(.*)/([^/]*)$!\1/.\2!;
+	$filename =~ s!^(.*)/([^/]*)$!$1/.$2!;
 	$filename .= ".info";
 
 	return (undef) if ! open (INFO_FILE, $filename);
@@ -3381,7 +3481,7 @@ __END__
 
 =head1 NAME
 
-CIPP - CgI Perl Preprocessor
+CIPP - Powerful preprocessor for embedding Perl and SQL in HTML
 
 =head1 SYNOPSIS
 
@@ -3393,6 +3493,8 @@ CIPP - CgI Perl Preprocessor
  $CIPP->Preprocess;
 
 =head1 DESCRIPTION
+
+CIPP = CgI Perl Preprocessor
 
 CIPP is a perl module for translating CIPP sources to pure perl
 programs. CIPP defines a HTML embedding language called CIPP
@@ -3419,7 +3521,7 @@ software.
 
 The documentation of the language defined by CIPP can be
 downloaded from CPAN as an extra package. This is usefull, because
-the format of the documentation is PDF and the file has more
+the format of the documentation is actually PDF and the file has more
 than 500kb. Also not every modification of CIPP leads to modification
 of the documentation.
 
@@ -3432,8 +3534,8 @@ only. We will provide english documentation in future.
 		  $mime_type, $default_db, $call_path,
 		  $skip_header_line, $debugging
 		  [, $result_type ] [, $use_strict] [, $reintrant]
-		  [, $apache_mod ], [, $spirit_project ] );
-
+		  [, $apache_mod ], [, $spirit_project ]
+		  [, $use_inc_cache ] );
 	$input		Dateiname oder Filehandle-Referenz oder
 			Scalar-Referenz fuer Output
 	$output		Dateiname oder Filehandle-Referenz oder
@@ -3472,6 +3574,7 @@ only. We will provide english documentation in future.
 	$apache_mod	true, wenn Einsatz als Apache-Modul
 	$project	Das Project, in dem sich das zu bearbeitende
 			Objekt befindet.
+	$use_inc_cache	Soll der Include Cache verwendet werden?
 
  $status = $CIPP->Get_Init_Status();
 	liefert	0 : Fehler beim Initialisieren
@@ -3583,7 +3686,7 @@ only. We will provide english documentation in future.
 	werden.
 
  $CIPP->Skip_Header ()
-	List solange von der Eingabequelle, bis
+	Liest solange von der Eingabequelle, bis
 	$CIPP->{skip_header_line} gefunden wurde. Der Zeilen-
 	zaehler der Eingabequelle wird auf 0 gesetzt.
 
@@ -3616,7 +3719,6 @@ only. We will provide english documentation in future.
 	die in der Instanz festgehaltenen Fehlermeldungen eingearbeitet
 	und hervorgehoben.
 
-
 =head1 AUTHOR
 
 Jörn Reder, joern@dimedis.de
@@ -3625,7 +3727,7 @@ Jörn Reder, joern@dimedis.de
 
 Copyright 1997-1999 dimedis GmbH, All Rights Reserved
 
-This library ist free software; you can redistribute it and/or modify
+This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself.
 
 =head1 SEE ALSO

@@ -120,6 +120,7 @@ if ( 0 ) {
 package CIPP::InputHandle;
 
 $CIPP::InputHandle::obj_nr = 0;
+$VERSION = "0.2";
 
 sub new {
 	my $type = shift;
@@ -346,3 +347,28 @@ sub Get_Line_Number {
 }
 
 1;
+__END__
+
+=head1 NAME
+
+CIPP::InputHandle - Input stream abstraction (file and memory I/O)
+
+=head1 DESCRIPTION
+
+This module abstracts from an input source. So it is possible to
+read transparently from a file, filehandle or memory.
+
+=head1 AUTHOR
+
+Jörn Reder, joern@dimedis.de
+
+=head1 COPYRIGHT
+
+Copyright 1997-1999 dimedis GmbH, All Rights Reserved
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.
+
+=head1 SEE ALSO
+
+perl(1), CIPP (3pm)
