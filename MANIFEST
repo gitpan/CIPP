@@ -7,6 +7,7 @@ CIPP/Runtime.pm
 CIPP/LangEN.pm
 CIPP/LangDE.pm
 CIPP/Manual.pm
+lib/HTML/CIPP.pm
 CIPP.pm
 Changes
 MANIFEST
@@ -14,5 +15,4 @@ Makefile.PL
 README
 test.pl
 test.cipp
-test.cgi
 output.cgi

@@ -36,6 +36,13 @@ $cipp_db_zyn::Auto_Commit = $cipp_apache_request->dir_config ("db_zyn_auto_commi
 
 $cipp_db_zyn::dbh->{AutoCommit} = $cipp_db_zyn::Auto_Commit;
 my ($cipp_db_zyn_sth, $cipp_db_zyn_ar, $cipp_db_zyn_maxrows, $cipp_db_zyn_winstart);
+
+if ( $cipp_db_zyn::data_source =~ /^dbi:Informix:/ ) {
+	$cipp_db_zyn::dbh->do (qq{
+		set lock mode to wait
+	});
+	die "set_lock_mode	$DBI::errstr" if $DBI::errstr;
+}
 # cippline 1 "input.cipp"
 print qq[<HTML>
 <HEAD><TITLE>CIPP-Apache-Test</TITLE></HEAD>

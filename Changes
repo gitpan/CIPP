@@ -1,5 +1,14 @@
 Revision history for Perl extension CIPP.
 
+2.12  Sat Oct 09 1999 joern
+	- added a workaround for Informix databases. After connecting
+	  to the database, a "set lock mode to wait" is executed,
+	  because some Informix databases do not wait on a lock. Instead
+	  nothing happens, even no exception is thrown. :(
+	  I will add this as an official feature in the near future,
+	  called 'initial sql statement' per database. This is more
+	  flexible than this hardcoded workaround.
+
 2.11  Thu Sep 30 1999 joern
 	- the Changes log has restarted with this version
 	- CIPP has now multilanguage support. Error messages
@@ -7,3 +16,7 @@ Revision history for Perl extension CIPP.
 	- the documentation is translated to english. It is not
 	  part of this distribution. Please download the package
 	  CIPP-Doc from CPAN.
+
+
+The previous section was in german language only and rather long,
+so it is omitted here.

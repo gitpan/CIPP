@@ -1,9 +1,9 @@
 package CIPP;
 
-#$Id: CIPP.pm,v 1.20 1999/10/02 13:49:16 joern Exp $
+#$Id: CIPP.pm,v 1.21 1999/10/09 08:46:41 joern Exp $
 
-$VERSION = "2.11";
-$REVISION = q$Revision: 1.20 $; 
+$VERSION = "2.12";
+$REVISION = q$Revision: 1.21 $; 
 
 use strict;
 use Config;

@@ -4,7 +4,7 @@
 #       CIPP::DB_DBI
 #
 # REVISION
-#	$Revision: 1.7 $
+#	$Revision: 1.8 $
 #
 # METHODEN
 #       siehe CIPP_DB.interface
@@ -84,12 +84,16 @@
 #		+ back_prod_path wird dynamisch anhand der Variablen
 #		  $cipp_back_prod_path eingesetzt
 #
+#	06.10.1999 0.53 joern
+#		+ für Informix Datenbanken wird automatisch ein
+#		  "set lock mode to wait" im open code abgesetzt.
+#
 #------------------------------------------------------------------------------
 
 package CIPP::DB_DBI;
 
 $VERSION = "0.51";
-$REVISION = q$Revision: 1.7 $;
+$REVISION = q$Revision: 1.8 $;
 
 sub new {
 	my ($type) = shift;
@@ -184,6 +188,18 @@ sub Open {
 ${pkg}::dbh->{AutoCommit} = ${pkg}::Auto_Commit;
 my (${pkg}_sth, ${pkg}_ar, ${pkg}_maxrows, ${pkg}_winstart);
 ];
+
+	# informix workaround "set lock mode to wait"
+	
+	$code .= qq[
+if ( ${pkg}::data_source =~ /^dbi:Informix:/ ) {
+	${pkg}::dbh->do (qq{
+		set lock mode to wait
+	});
+	die "set_lock_mode\t\$DBI::errstr" if \$DBI::errstr;
+}
+];
+
 	return $code;
 }
 
