@@ -5,6 +5,7 @@ use strict;
 use File::Path;
 use File::Basename;
 use Data::Dumper;
+use CIPP::Cache;
 
 use vars qw ( $VERSION );
 
@@ -20,6 +21,8 @@ sub new {
 	# take parameters
 	my  ($CIPP,  $name,  $filename,  $gen_my,  $input,  $output) =
 	@par{'CIPP', 'name', 'filename', 'gen_my', 'input', 'output'};
+	
+	$DEBUG && print STDERR "new INCLUDE: $name\n";
 	
 	my $self = bless {
 		# CIPP object
@@ -44,11 +47,14 @@ sub new {
 		cache_dir => $CIPP->{apache_mod}->dir_config('cache_dir'),
 		
 		# document root
-		document_root => $CIPP->{apache_mod}->dir_config('document_root')
-			|| die "document_root is missing in Apache::CIPP config",
+		document_root => $CIPP->{apache_mod}->document_root,
 		
 		# interface of this include (cached here)
 		include_interface => undef,
+		
+		# apache request object
+		apache_request => $CIPP->{apache_mod},
+		
 	}, $type;
 	
 	my $cache_filename     = $self->get_cache_filename ($filename);
@@ -58,6 +64,11 @@ sub new {
 	$self->{cache_filename}     = $cache_filename;
 	$self->{interface_filename} = $interface_filename;
 	$self->{dep_filename}       = $dep_filename;
+
+	my ($atime,$mtime) = (stat($interface_filename))[8,9] if -f $interface_filename;
+
+	$self->{last_interface_atime} = $atime;
+	$self->{last_interface_mtime} = $mtime;
 	
 	return $self;
 }
@@ -116,31 +127,58 @@ sub process {
 	return if not $self->cipp_preprocessed_ok;
 	
 	# lets check the interface and return, if it is not correct
-	return if not $self->interface_is_correct;
+	if ( not $self->interface_is_correct ) {
+		$DEBUG && print STDERR "INTERFACE INCORRECT: $self->{name}\n";
+		return;
+	} else {
+		$DEBUG && print STDERR "INTERFACE CORRECT: $self->{name}\n";
+	}
 	
 	# ok, everything ok and up-to-date, generate the include call
 	$self->generate_include_call_code;
 	
-	1;	
+	# return the interface filename, for dependecny purposes
+	return $self->{filename};	
 }
 
 sub cipp_preprocessed_ok {
 	my $self = shift;
 
-	$DEBUG && print STDERR "cipp_preprocessed_ok - entry\n";
+	my $name         = $self->{name};
+	my $include_file = $self->{filename};
+	my $CIPP         = $self->{CIPP};
+
+	# update used_macros information with "us"
+	
+	$CIPP->{used_macros}->{$include_file} = "$include_file\t$self->{cache_filename}\t$self->{interface_filename}";
 
 	# do we really need to preprocess this include?
-	return if $self->dependencies_are_ok;
-	
-	$DEBUG && print STDERR "cipp_preprocessed_ok - dependency fail\n";
+	if ( CIPP::Cache->is_clean ( dep_file => $self->{dep_filename} ) ) {
+		# ok, we are clean, but we must return the includes,
+		# we are using, so our "Includer" can record this
+		# in its dependency list.
+		#
+		# which databases we used is recorder later,
+		# in the interface_is_correct method, because
+		# databases are an interface information which
+		# is stored in the .iface file
+		CIPP::Cache->add_used_includes (
+			dep_file      => $self->{dep_filename} ,
+			used_includes => $CIPP->{used_macros},
+		);
+
+		$DEBUG && print STDERR "$name: no need to preprocess\n";
+
+		return 1;
+	}
+
+	$DEBUG && print STDERR "$name: starting preprocess\n";
 
 	# yes, we need
 	my $perl_code;
 
 	my $name         = $self->{name};
 	my $include_file = $self->{filename};
-
-	my $CIPP = $self->{CIPP};
 
 	my $INCLUDE = new CIPP
 		($include_file, \$perl_code, $CIPP->{projects},
@@ -170,18 +208,18 @@ sub cipp_preprocessed_ok {
 	my $interface = $self->store_include_interface ($INCLUDE);
 
 	# update dependencies
-	$self->update_include_dependencies ($INCLUDE);
+	$self->write_include_dependencies ($INCLUDE);
 
 	# Hash der benutzten Macros aus der Liste des Macros aktualisieren
-	my ($macro, $foo);
+	my ($macro, $files);
 	if ( defined $INCLUDE->Get_Used_Macros() ) {
-		while ( ($macro, $foo) = each %{$INCLUDE->Get_Used_Macros()} ) {
-			$CIPP->{used_macros}{$macro} = 1;
+		while ( ($macro, $files) = each %{$INCLUDE->Get_Used_Macros()} ) {
+			$CIPP->{used_macros}{$macro} = $files;
 		} 
 	}
 
 	# Hash der benutzten Datenbanken aus der Liste des Macros aktualisieren
-	my $db;
+	my $db; my $foo;
 	if ( defined $INCLUDE->Get_Used_Databases() ) {
 		while ( ($db, $foo) = each %{$INCLUDE->Get_Used_Databases()} ) {
 			$CIPP->{used_databases}{$db} = 1;
@@ -206,7 +244,6 @@ sub cipp_preprocessed_ok {
 
 	# error checking
 	if ( defined $INCLUDE->Get_Messages() ) {
-		$DEBUG && print STDERR "Include '$name' has errors!\n";
 		push @{$CIPP->{message}}, @{$INCLUDE->Get_Messages()};
 	}
 	if ( ! $INCLUDE->Get_Preprocess_Status() ) {
@@ -227,7 +264,14 @@ sub cipp_preprocessed_ok {
 		perl_code_sref => \$perl_code,
 		interface => $interface
 	);
-	
+
+	if ( $self->{interfaces_are_compatible} and $self->{last_interface_atime} ) {
+		# set back timestamps
+		my $interface_filename = $self->{interface_filename};
+		utime $self->{last_interface_atime}, $self->{last_interface_mtime},
+		      $interface_filename;
+		$DEBUG && print STDERR "touch $self->{last_interface_mtime}, $interface_filename\n";
+	}
 	return 1;
 }
 
@@ -237,7 +281,7 @@ sub write_include_subroutine {
 	my %par = @_;
 	
 	my ($perl_code_sref, $interface) = @par{'perl_code_sref','interface'};
-	
+
 	# write include subroutine
 	my $cache_filename = $self->{cache_filename};
 	$self->make_path ($cache_filename);
@@ -318,45 +362,6 @@ sub write_include_subroutine {
 	return 1;
 }
 
-sub dependencies_are_ok {
-	my $self = shift;
-
-	my $dep_files_lref = $self->get_list_of_dependency_files;
-	
-	# if our own cache file is missing, the dependency check fails
-	return if not -e $self->{cache_filename};
-	
-	my $my_mtime = (stat($self->{cache_filename}))[9];
-	
-	foreach my $dep_file ( @{$dep_files_lref} ) {
-		# if file is missing, this dependency fails
-		return if not -e $dep_file;
-		
-		my $dep_mtime = (stat($dep_file))[9];
-		# return false if a dependency file mtime
-		# is newer than our own mtime
-		return if $dep_mtime > $my_mtime;
-	}
-
-	# ok, we are newer than all files we depend on	
-	return 1;
-}
-
-sub get_list_of_dependency_files {
-	my $self = shift;
-	
-	my @dep;
-	my $dep_file = $self->{dep_filename};
-	
-	if ( -f $dep_file ) {
-		open (DEP, $dep_file) or die "can't read $dep_file";
-		@dep = split("\t", <DEP>);
-		close DEP;
-	}
-
-	return \@dep;	
-}
-
 sub store_include_interface {
 	my $self = shift;
 	
@@ -366,10 +371,10 @@ sub store_include_interface {
 	my $param_optional = $INCLUDE->Get_Include_Optionals() || {};
 	my $param_output   = $INCLUDE->Get_Include_Outputs() || {};
 	my $param_bare     = $INCLUDE->Get_Include_Bare() || {};
-	
+	my $databases      = $INCLUDE->Get_Used_Databases() || {};
+
 	my $filename       = $self->{interface_filename};
 
-	my $mtime          = (stat($filename))[9]          if -f $filename;
 	my $old_interface  = $self->get_include_interface  if -f $filename;
 	
 	$self->make_path ($filename);
@@ -379,22 +384,74 @@ sub store_include_interface {
 	print OUT join (":", %{$param_optional}), "\n";
 	print OUT join (":", %{$param_output}), "\n";
 	print OUT join (":", %{$param_bare}), "\n";
+	print OUT join (":", %{$databases}), "\n";
 	close OUT;
 
-	if ( $old_interface ) {
-		# TODO !!!
-
-		# check, if we have an incompatible interface change
-		# set mtime back, if no incompatible change
-	}
-
-	return $self->{include_interface} = {
-		input    => $param_input,
-		optional => $param_optional,
-		output   => $param_output,
-		noquote  => $param_bare,
+	my $new_interface = {
+		input     => $param_input,
+		optional  => $param_optional,
+		output    => $param_output,
+		noquote   => $param_bare,
+		databases => $databases,
 	};
+
+	$self->{interfaces_are_compatible} = $self->interfaces_are_compatible (
+		old_interface => $old_interface,
+		new_interface => $new_interface
+	);
+
+	return $self->{include_interface} = $new_interface;
 }	
+
+sub interfaces_are_compatible {
+	my $self = shift;
+	
+	my %par = @_;
+	my ($oi, $ni) = @par{'old_interface', 'new_interface'};
+	
+	my $par;
+	my $incompatible;
+	my $name = $self->{name};
+	
+	# 1. incompatible, if we have a new INPUT parameter,
+	#    or type has changed
+		
+	foreach $par ( keys %{$ni->{input}} ) {
+		return if $oi->{input}->{$par} ne $ni->{input}->{$par};
+	}
+	
+#	$DEBUG && print STDERR "interface_compatible ($name) 1: no new INPUT parameters\n";
+
+	# 2. an INPUT parameter was removed, but is no
+	#    optional parameter (of same type)
+	
+	foreach $par ( keys %{$oi->{input}} ) {
+		return if $oi->{input}->{$par} ne $ni->{input}->{$par} and
+		          $oi->{input}->{$par} ne $ni->{optional}->{$par};
+	}
+	
+#	$DEBUG && print STDERR "interface_compatible ($name) 2: no removed INPUT parameters\n";
+
+	# 3. removal of an OPTIONAL parameter (or type switch)?
+	
+	foreach $par ( keys %{$oi->{optional}} ) {
+		return if $oi->{optional}->{$par} ne $ni->{optional}->{$par};
+	}
+	
+#	$DEBUG && print STDERR "interface_compatible ($name) 3: no removed OPTIONAL parameters\n";
+
+	# 4. removal of an OUTPUT parameter?
+	
+	foreach $par ( keys %{$oi->{output}} ) {
+		return if $oi->{output}->{$par} ne $ni->{output}->{$par};
+	}
+	
+#	$DEBUG && print STDERR "interface_compatible ($name) 4: no removed OUTPUT parameters\n";
+
+	# 5. TODODODODO: databases check
+
+	return 1;
+}
 
 sub get_include_interface {
 	my $self = shift;
@@ -424,38 +481,39 @@ sub get_include_interface {
 	chomp ($line = <IN>);
 	my %bare = split(":", $line);
 	
+	# databases
+	chomp ($line = <IN>);
+	my %databases = split(":", $line);
+	
 	# close file
 	close IN;
 	
 	# store and return
 	return $self->{include_interface} = {
-		input    => \%input,
-		optional => \%optional,
-		output   => \%output,
-		noquote  => \%bare,
+		input     => \%input,
+		optional  => \%optional,
+		output    => \%output,
+		noquote   => \%bare,
+		databases => \%databases,
 	};
 
 	1;
 }
 
-sub update_include_dependencies {
+sub write_include_dependencies {
 	my $self = shift;
 	
 	my ($INCLUDE) = @_;
-	
-	my $href = $INCLUDE->Get_Direct_Used_Objects;
-	
-	my $line = $self->{filename};
-	
-	foreach my $k ( keys %{$href} ) {
-		$line .= ":".$self->get_interface_filename((split(":", $k))[0]);
-	}
-	
-	my $filename = $self->{dep_filename};
-	$self->make_path ($filename);
-	open (OUT, "> $filename") or die "can't write $filename";
-	print OUT "$line\n";
-	close OUT;
+
+	my $includes  = $INCLUDE->Get_Used_Macros;
+	my @include_files = values %{$includes};
+
+	CIPP::Cache->write_dep_file (
+		src_file      => $self->{filename},
+		dep_file      => $self->{dep_filename},
+		cache_file    => $self->{cache_filename},
+		include_files => \@include_files,
+	);
 	
 	1;
 }
@@ -463,10 +521,14 @@ sub update_include_dependencies {
 sub interface_is_correct {
 	my $self = shift;
 	
-	$DEBUG && print STDERR "interface_is_correct - entry\n";
-	
 	# load interface information
 	my $interface = $self->get_include_interface;
+	
+	# notify called object about our databases
+	my $CIPP = $self->{CIPP};
+	foreach my $db ( keys %{$interface->{databases}} ) {
+		$CIPP->{used_databases}->{$db} = 1;
+	}
 	
 	my $error;
 
@@ -474,9 +536,9 @@ sub interface_is_correct {
 	my $input  = $self->{input};
 	my $output = $self->{output};
 	
-	$DEBUG && print STDERR "Include Interface: ", Dumper ($interface);
-	$DEBUG && print STDERR "input: ", Dumper ($input);
-	$DEBUG && print STDERR "output: ", Dumper ($output);
+#	$DEBUG && print STDERR "Include Interface: ", Dumper ($interface);
+#	$DEBUG && print STDERR "input: ", Dumper ($input);
+#	$DEBUG && print STDERR "output: ", Dumper ($output);
 
 	# any unknown input parameters?
 	my @unknown_input;
@@ -504,11 +566,15 @@ sub interface_is_correct {
 		}
 	}
 
+	$DEBUG && print STDERR "$self->{name}: interface check. error=$error\n";
+
 	return not $error;	
 }
 
 sub generate_include_call_code {
 	my $self = shift;
+
+	$DEBUG && print STDERR "GENERATE INCLUDE CALL CODE: $self->{name}\n";
 
 	my $interface = $self->get_include_interface;
 	
@@ -570,7 +636,7 @@ sub generate_include_call_code {
 	
 	$self->{CIPP}->{output}->Write ( $code );
 
-	$DEBUG && print STDERR "include call code:\n$code\n\n";
+#	$DEBUG && print STDERR "include call code:\n$code\n\n";
 
 	1;
 }

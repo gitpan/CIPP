@@ -4,7 +4,7 @@
 #	CIPP::Runtime.pm
 #
 # REVISION
-#	$Revision: 1.9 $
+#	$Revision: 1.1.1.1 $
 #
 # DESCRIPTION
 #	Enthält Funktionen, die zur Laufzeit von CIPP-CGI Programmen
@@ -132,7 +132,7 @@
 
 package CIPP::Runtime;
 
-$REVISION = q$Revision: 1.9 $;
+$REVISION = q$Revision: 1.1.1.1 $;
 $VERSION = "0.36";
 
 use strict;

@@ -1,4 +1,4 @@
-# $Id: CIPP.pm,v 1.58 2001/03/07 16:50:14 joern Exp $
+# $Id: CIPP.pm,v 1.1.1.1 2001/03/17 15:44:25 joern Exp $
 
 # TODO
 #
@@ -9,8 +9,8 @@ package CIPP;
 use strict;
 use vars qw ( $INCLUDE_SUBS $VERSION $REVISION );
 
-$VERSION = "2.28";
-$REVISION = q$Revision: 1.58 $; 
+$VERSION = "2.30";
+$REVISION = q$Revision: 1.1.1.1 $; 
 $INCLUDE_SUBS = 0;
 
 use Config;
@@ -1642,15 +1642,16 @@ sub Process_Include {
 			# geschlossen, da kommt man schnell ans 'ulimit -n')
 			$MACRO->{input} = undef;
 		}
-		
-		# Wurde dort <?!HTTPHEADER> verwendet?
-		if ( not exists $self->{http_header_perl_code} and
-		         exists	$MACRO->{http_header_perl_code} ) {
-			$self->{http_header_perl_code} =
-				$MACRO->{http_header_perl_code};
-		}
 	}
 
+	# Wurde im Include <?!HTTPHEADER> verwendet?
+	# (dann hochreichen des HTTPHEADER codes)
+
+	if ( not exists $self->{http_header_perl_code} and
+		 exists	$MACRO->{http_header_perl_code} ) {
+		$self->{http_header_perl_code} =
+			$MACRO->{http_header_perl_code};
+	}
 
 	# Ist die Übergabe von Parametern verboten, es wurden aber
 	# doch welche angegeben?
@@ -4366,9 +4367,6 @@ sub Process_Include_Sub {
 	}
 	
 
-	# Macro-Abhaengigkeitsliste aktualisieren
-	$self->{used_macros}->{$name} = 1;
-
 	# Dateinamen des Macros bestimmen
 	my $macro_file = $self->Resolve_Object_Source ($name, 'cipp-inc');
 
@@ -4392,7 +4390,7 @@ sub Process_Include_Sub {
 		output   => \%output
 	);
 
-	$inc->process;
+	my $dep_include_file = $inc->process;
 
 	return $in_print_statement;
 }

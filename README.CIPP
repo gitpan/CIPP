@@ -4,9 +4,11 @@ NAME
 SYNOPSIS
     This module is a preprocessor for the CIPP language. To use
     it you need either CGI::CIPP, Apache::CIPP or new.spirit.
-    Please download the packages from CPAN (new.spirit is also
-    available at http://www.dimedis.de/ ) and refer to their
-    documentation for details.
+    CGI::CIPP and Apache::CIPP are part of the CIPP distribution.
+
+    Refer to README.Apache and README.CGI to learn, how CIPP
+    ist used in this environments. You will never use the CIPP
+    module directly.
 
     So this SYNOPSIS is empty... ;)
 
@@ -140,7 +142,7 @@ BUG REPORTING
         cipp@dimedis.de
 
 README REVISION
-    $Id: README,v 1.6 2000/08/10 13:00:55 joern Exp $
+    $Id: README.CIPP,v 1.1.1.1 2001/03/17 15:44:25 joern Exp $
 
 CREDITS
     Martin H. Sluka <martin@sluka.de> for his STICKY idea

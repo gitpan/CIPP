@@ -1,9 +1,9 @@
 package CIPP::LangEN;
 
-# $Id: LangEN.pm,v 1.7 2001/03/05 16:42:55 joern Exp $
+# $Id: LangEN.pm,v 1.2 2001/03/23 14:32:05 joern Exp $
 
 $VERSION = "0.01";
-$REVISION = q$Revision: 1.7 $;
+$REVISION = q$Revision: 1.2 $;
 
 use strict;
 
@@ -69,7 +69,7 @@ package CIPP::Lang;
 	
 	getparam_no_type	=> "parameter '%s' is not a scalar or array",
 	
-	getparamlist_no_array	=> "varaiable '%s' is no array",
+	getparamlist_no_array	=> "variable '%s' is no array",
 
 	perl_runtime		=> "perl error: %s",
 	

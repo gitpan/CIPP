@@ -1,9 +1,9 @@
 package CIPP::LangDE;
 
-# $Id: LangDE.pm,v 1.7 2001/03/05 16:42:55 joern Exp $
+# $Id: LangDE.pm,v 1.1.1.1 2001/03/17 15:44:26 joern Exp $
 
 $VERSION = "0.01";
-$REVISION = q$Revision: 1.7 $;
+$REVISION = q$Revision: 1.1.1.1 $;
 
 use strict;
 

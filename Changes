@@ -1,5 +1,47 @@
 Revision history for Perl extension CIPP.
 
+2.30	Sat Mar 16 2001 joern
+	- now Apache::CIPP and CGI::CIPP are integrated into the
+	  CIPP distribution. Extra downloading and installation
+	  is not neccessary anymore. The documentation is actually
+	  not perfectly merged, so some READMEs and PODs contain
+	  redundant information. Please be patient: a new documenatation
+	  is on its way! ;) Anyhow: this adresses only installation
+	  notes. The CIPP language itself is good documented through
+	  the CIPP::Manual POD module.
+	  
+	- the experimental implementation of Subroutine Includes
+	  is now less experimental ;) You can control this feature
+	  through the Apache or CGI::CIPP configuration parameter
+	  'include_subs'. The future will bring CIPP module generation
+	  with all that caching stuff for Apache::CIPP and CGI::CIPP
+	  environments, and not only under new.spirit.
+	  
+	  Note:
+	  =====
+	  Before enabling Subroutine Includes, delete your CIPP cache
+	  directory, because the internal file structure has changed.
+
+	- the new configuration parameter 'stats' controls collection
+	  of runtime profile statistics. You can see how much time
+	  your programs *and* Includes spend. Refer to the Apache::CIPP
+	  manpage for a brief description of enabling this feature.
+	  
+	  Note:
+	  =====
+	  Statistics are collected on a per process base, so this only
+	  functions for mod_perl or SpeedyCGI environments. Pure CGI
+	  environments (new.spirit or CGI::CIPP) are currently not
+	  supported, but this may change in future.
+
+2.29	Mon Mar 12 2001 joern
+	- Bugfix:
+	  Due to a bug inside the CIPP Include Cache machanism a
+	  <?!HTTPHEADER> command used by an Include did not
+	  work, if you do a new.spirit "Project Compilation"
+	  (only for the *first* processed object, which includes
+	  this Cache include)
+
 2.28	Wed Mar 07 2001 joern
 	- updated CIPP::Manual
 
@@ -15,7 +57,7 @@ Revision history for Perl extension CIPP.
 	  memory and can speed up to 20% in a mod_perl environment.
 	  Currently this works only in Apache::CIPP and CGI::CIPP
 	  environment. To enable this feature, set $CIPP::INCLUDE_SUBS
-	  before CIPP->new(), until this feature is "officiall".
+	  before CIPP->new(), until this feature is "official".
 	- a new command: <?DUMP $var ...>. Uses Data::Dumper to dump
 	  the listed variables to STDOUT, encapsulated in a <pre> block.
 	- added a new option to the SQL commands: DBH. If a DBH option

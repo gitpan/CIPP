@@ -3,13 +3,13 @@ package CIPP::Request;
 use strict;
 use vars qw ( $VERSION %INCLUDE_SUBS %INCLUDE_SUBS_LOADED );
 
-$VERSION = "0.01";
+$VERSION = "0.02";
 
 # this hash takes anonymous code references to loaded
 # include subroutines ( name => code reference )
 %INCLUDE_SUBS = ();
 
-# this hash takes stores the time of loading a sub
+# this hash stores the point of time loading a sub
 # ( name => timestamp )
 %INCLUDE_SUBS_LOADED = ();
 
@@ -18,15 +18,29 @@ sub new {
 	
 	my ($apache_request) = @_;
 	
+	my $stat;
+	my $cache_dir = $apache_request->dir_config ("cache_dir");
+	
+	if ( $apache_request->dir_config ("stat") ) {
+		require CIPP::Stat::Collect;
+		$stat = CIPP::Stat::Collect->request (
+			object    => $apache_request->uri,
+			cache_dir => $cache_dir,
+		);
+	}
+	
 	my $self = {
 		# Apache request object
 		apache_request => $apache_request,
 		
 		# cache directory for preprocessed includes
-		cache_dir => $apache_request->dir_config ("cache_dir"),
+		cache_dir => $cache_dir,
 		
 		# subroutines, loaded during this request
 		loaded_subroutines => {},
+		
+		# stat object, if statistics are enabled
+		stat => $stat,
 	};
 	
 	return bless $self, $type;
@@ -43,23 +57,27 @@ sub call_include_subroutine {
 	# load the subroutine
 	my $sub = $self->load_include_subroutine ($file);
 	
+	# collect stat data, if configuried
+	$self->{stat} && $self->{stat}->log ("execute_include_start", $file);
+	
 	# excecute the subroutine
 	my $output_href = &$sub ($self, $input);
+
+	# collect stat data, if configuried
+	$self->{stat} && $self->{stat}->log ("execute_include_end", $file);
 
 	# return output parameters
 	foreach my $name ( keys %{$output} ) {
 		if ( ref $output_href->{$name} eq 'SCALAR' or
 		     ref $output_href->{$name} eq 'REF' ) {
-#			print STDERR "$name: scalar\n";
 			${$output->{$name}} = ${$output_href->{$name}};
 		} elsif ( ref $output_href->{$name} eq 'ARRAY' ) {
-#			print STDERR "$name: array\n";
 			@{$output->{$name}} = @{$output_href->{$name}};
 		} elsif ( ref $output_href->{$name} eq 'HASH' ) {
-#			print STDERR "$name: hash\n";
 			%{$output->{$name}} = %{$output_href->{$name}};
 		} else {
-			print STDERR "$name: ", ref($output_href->{$name}), "\n";
+			die "INCLUDE\tunknown output parameter type: $name: ".
+			    ref($output_href->{$name});
 		}
 	}
 	
@@ -89,6 +107,9 @@ sub load_include_subroutine {
 		return $INCLUDE_SUBS{$sub_key} if $mtime < $load_time;
 	}
 	
+	# collect stat data, if configuried
+#	$self->{stat} && $self->{stat}->log ("load_include_start", $file);
+	
 	# otherwise load the subroutine perl code file
 	open (PC, $perl_code_file) or die "INCLUDE\tcan't read $perl_code_file";
 	my $perl_code;
@@ -111,6 +132,9 @@ sub load_include_subroutine {
 	# ok, subsequent include subroutine calls can call the subroutine
 	# immediately, without the whole load and cache check stuff
 	$self->{loaded_subroutines}->{$sub_key} = 1;
+
+	# collect stat data, if configuried
+#	$self->{stat} && $self->{stat}->log ("load_include_end", $file);
 
 	return $sub;
 

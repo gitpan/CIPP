@@ -1,7 +1,7 @@
 package CIPP::DB_DBI;
 
 $VERSION = "0.64";
-$REVISION = q$Revision: 1.17 $;
+$REVISION = q$Revision: 1.1.1.1 $;
 
 use strict;
 
