@@ -1,17 +1,15 @@
-# $Id: Request.pm,v 1.17 2003/08/07 08:08:46 joern Exp $
+# $Id: Request.pm,v 1.38 2006/05/29 11:25:09 joern Exp $
 
 package CIPP::Runtime::Request;
 
-$VERSION = "0.01";
+$VERSION = "1.0.5";
 
 use strict;
 use Carp;
 use FileHandle;
 use File::Basename;
 
-use vars qw ( %INCLUDE_SUBS %INCLUDE_SUBS_LOADED );
-
-my $DEBUG = -f "/tmp/cipp.debug.enable";
+use vars qw ( %INCLUDE_SUBS %INCLUDE_SUBS_LOADED_MTIME );
 
 # this hash takes anonymous code references to loaded
 # include subroutines ( name => code reference )
@@ -19,7 +17,7 @@ my $DEBUG = -f "/tmp/cipp.debug.enable";
 
 # this hash stores the point of time loading a sub
 # ( name => timestamp )
-%INCLUDE_SUBS_LOADED = ();
+%INCLUDE_SUBS_LOADED_MTIME = ();
 
 # The program name is initialized when the request object is created
 
@@ -37,6 +35,7 @@ sub get_lib_dir			{ shift->{lib_dir}			}
 sub get_log_dir			{ shift->{log_dir}			}
 sub get_log_file		{ shift->{log_file}			}
 sub get_utf8			{ shift->{utf8}				}
+sub get_xhtml			{ shift->{xhtml}			}
 
 # These are accessors for some seldom used project attributes
 # (so we don't need to export the Project's interface and can
@@ -67,6 +66,9 @@ sub get_caller_stack		{ shift->{caller_stack}			}
 sub get_profiling_stack		{ shift->{profiling_stack}		}
 sub get_profiling_active	{ shift->{profiling_active}		}
 sub get_switchdb_stack		{ shift->{switchdb_stack}		}
+sub get_mandatory_parameters	{ shift->{mandatory_parameters}		}
+sub get_optional_parameters	{ shift->{optional_parameters}		}
+sub get_script_name		{ shift->{script_name}			}
 
 sub set_cgi_object		{ shift->{cgi_object}		= $_[1]	}
 sub set_http_header_printed	{ shift->{http_header_printed}	= $_[1]	}
@@ -75,6 +77,9 @@ sub set_caller_stack		{ shift->{caller_stack}		= $_[1]	}
 sub set_profiling_stack		{ shift->{profiling_stack}	= $_[1]	}
 sub set_profiling_active	{ shift->{profiling_active}	= $_[1]	}
 sub set_switchdb_stack		{ shift->{switchdb_stack}	= $_[1]	}
+sub set_mandatory_parameters	{ shift->{mandatory_parameters}	= $_[1]	}
+sub set_optional_parameters	{ shift->{optional_parameters}	= $_[1]	}
+sub set_script_name		{ shift->{script_name}		= $_[1]	}
 
 # The HTTP header is initialized from the project's default
 # HTTP header for each request.
@@ -125,6 +130,7 @@ sub new {
 		show_error	    => $project_handle->get_error_show,
 		show_error_text	    => $project_handle->get_error_text,
 		utf8		    => $project_handle->get_utf8,
+		xhtml		    => $project_handle->get_xhtml,
 		caller_stack	    => [],
 		profiling_stack     => [],
 		switchdb_stack	    => [],
@@ -133,18 +139,101 @@ sub new {
 	return $self;
 }
 
-sub debug {
-	return if not $DEBUG;
-	shift;
-	require File::Basename;
-	open (DEBUG,">>/tmp/cipp.debug.log") or return;
-	print DEBUG scalar(localtime(time)), " $$ '",File::Basename::basename($0),"'\t", join (" ", @_), "\n";
-	close DEBUG;
+sub init {
+	# should be defined by subclasses
+}
+
+sub set_utf8 {
+	my $self = shift;
+	my ($utf8) = @_;
+
+	# nothing to do if value isn't changed
+	return $utf8 if $utf8 == $self->{utf8};
+	
+	# set new utf8 value
+	$self->{utf8} = $utf8;
+	
+	# do nothing with older Perls
+	return $utf8 if $] < 5.008;
+	
+	# change STDOUT mode
+	if ( $utf8 ) {
+		require Encode;
+		binmode STDOUT, ":utf8";
+	} else {
+		binmode STDOUT;
+	}
+	
+	# tag all input parameter
+	$self->utf8_tag_input_parameters (
+	  href => $self->get_mandatory_parameters
+	);
+	$self->utf8_tag_input_parameters (
+	  href => $self->get_optional_parameters
+	);
+
+	# return current value
+	return $utf8;
+}
+
+sub utf8_tag_input_parameters {
+	my $self = shift;
+	my %par = @_;
+	my ($href) = @par{'href'};
+
+	my $q = $self->get_cgi_object;
+
+	my ($name, $ref);
+	while ( ($name, $ref) = each %{$href} ) {
+		if ( ref $ref eq 'SCALAR' ) {
+			Encode::_utf8_on(${$ref})
+				if ${$ref} eq $q->param($name);
+
+		} elsif ( ref $ref eq 'HASH' )  {
+			my %hash = $q->param($name);
+			my ($k,$v);
+			while ( ($k, $v) = each %{$ref} ) {
+				next if $v ne $hash{$k};
+				Encode::_utf8_on($k);
+				Encode::_utf8_on($v);
+			}
+
+		} elsif ( ref $ref eq 'ARRAY' ) {
+			my @list = $q->param($name);
+			my $i = 0;
+			foreach my $v ( @{$ref} ) {
+				if ( $list[$i] eq $v ) {
+					Encode::_utf8_on($v);
+				}
+				++$i;
+			}
+		}
+
+
+	}
+
 	1;
 }
 
-sub init {
-	# should be defined by subclasses
+sub get_charset {
+	my $self = shift;
+	return $self->get_utf8 ? "utf-8" : "windows-1252";
+}
+
+sub print_http_equiv_content_type {
+	my $self = shift;
+
+	my $mime_type = $self->get_mime_type;
+
+	return 1 if $mime_type ne "text/html";
+	
+	my $charset = $self->get_charset;
+	
+	$mime_type = "text/html; charset=$charset";
+
+	print qq[<meta http-equiv="Content-Type" content="$mime_type"$CIPP::ee>\n];
+
+	1;
 }
 
 sub read_input_parameter {
@@ -152,7 +241,13 @@ sub read_input_parameter {
 	my %par = @_;
 	my ($mandatory, $optional) = @par{'mandatory','optional'};
 
-	my $q = $self->get_cgi_object;
+	# store parameter hashes (needed later if utf8 is switched
+	# on/off at runtime)
+	$self->set_mandatory_parameters($mandatory);
+	$self->set_optional_parameters($optional);
+
+	my $q    = $self->get_cgi_object;
+	my $utf8 = $self->get_utf8;
 
 	my ($name, $ref, @missing);
 
@@ -164,10 +259,10 @@ sub read_input_parameter {
 
 		if ( ref $ref eq 'SCALAR' ) {
 			${$ref} = $q->param($name);
-			Encode::_utf8_on(${$ref}) if $self->get_utf8;
+			Encode::_utf8_on(${$ref}) if $utf8;
 		} elsif ( ref $ref eq 'HASH' )  {
 			%{$ref} = $q->param($name);
-			if ( $self->get_utf8 ) {
+			if ( $utf8 ) {
 				my ($k,$v);
 				while ( ($k, $v) = each %{$ref} ) {
 					Encode::_utf8_on($k);
@@ -176,7 +271,7 @@ sub read_input_parameter {
 			}
 		} elsif ( ref $ref eq 'ARRAY' ) {
 			@{$ref} = $q->param($name);
-			if ( $self->get_utf8 ) {
+			if ( $utf8 ) {
 				foreach my $v ( @{$ref} ) {
 					Encode::_utf8_on($v);
 				}
@@ -189,10 +284,10 @@ sub read_input_parameter {
 	while ( ($name, $ref) = each %{$optional} ) {
 		if ( ref $ref eq 'SCALAR' ) {
 			${$ref} = $q->param($name);
-			Encode::_utf8_on(${$ref}) if $self->get_utf8;
+			Encode::_utf8_on(${$ref}) if $utf8;
 		} elsif ( ref $ref eq 'HASH' )  {
 			%{$ref} = $q->param($name);
-			if ( $self->get_utf8 ) {
+			if ( $utf8 ) {
 				my ($k,$v);
 				while ( ($k, $v) = each %{$ref} ) {
 					Encode::_utf8_on($k);
@@ -201,7 +296,7 @@ sub read_input_parameter {
 			}
 		} elsif ( ref $ref eq 'ARRAY' ) {
 			@{$ref} = $q->param($name);
-			if ( $self->get_utf8 ) {
+			if ( $utf8 ) {
 				foreach my $v ( @{$ref} ) {
 					Encode::_utf8_on($v);
 				}
@@ -218,10 +313,16 @@ sub param {
 	if ( $self->get_utf8 ) {
 		my $name = shift;
 		if ( defined $name ) {
-			# requesting the value of $name
-			my $value = $self->get_cgi_object->param ( $name );
-			Encode::_utf8_on($value);
-			return $value;
+			# requesting the value of $name | @name
+			if ( wantarray ) {
+				my @values = $self->get_cgi_object->param ( $name );
+				Encode::_utf8_on($_) for @values;
+				return @values;
+			} else {
+				my $value = $self->get_cgi_object->param ( $name );
+				Encode::_utf8_on($value);
+				return $value;
+			}
 		} else {
 			# requesting list of param names
 			my @names = $self->get_cgi_object->param();
@@ -267,12 +368,19 @@ sub stripped_exception {
 	return "$throw\t$msg";
 }
 
-
 sub error {
 	my $self = shift;
 	my %par = @_;
-	my  ($message, $cipp_line_nr, $object) =
-	@par{'message','cipp_line_nr','object'};
+	my ($message) = @par{'message'};
+
+	# generate UEI (Unique Exception Identifier)
+	my @d = localtime(time);
+	my ($server) = $ENV{SERVER_NAME} =~ /^([^.]+)/;
+	my $uei = sprintf(
+		"%s-%02d%02d-%05d-%d",
+		$server,
+		$d[4]+1, $d[3], $d[2]*3600+$d[1]*60+$d[0], $$
+	);
 
 	# extract CIPP exception identifier, if present
 	my $throw;
@@ -281,223 +389,230 @@ sub error {
 		$message = $2;
 	}
 
-	# determine perl line number from the exception's message
-	my $perl_line_nr;
-	if ( $message =~ /\s+at\s+[^\s]+\s+line\s+(\d+)/ ) {
-		# program level
-		$perl_line_nr = $1;
-	}
-	if ( $message =~ /\s+at\s+\(eval.*?\)\s+line\s+(\d+)/ ) {
-		# eval level (include)
-		$perl_line_nr ||= $1;
-	}
-
-	# If we have something on the caller stack, determine the
-	# latest include called: it's the one, which threw the
-	# exception resp. the latest one which must appear
-	# in the backtrace (if we have an exception in a module's
-	# method)
-
+	# determine perl line number and filename from
+	# the exception's message - distuingish between
+	# Include, Module and CGI program.
+	my $prod_dir = $self->get_prod_dir;
 	my $caller_stack = $self->get_caller_stack;
+	my ($object_type, $perl_line_nr, $cipp_line_nr, $perl_filename);
+	if ( $message =~ /\s+at\s+\(eval.*?\)\s+line\s+(\d+)/ and
+	     @{$caller_stack} ) {
+		# eval level (include)
+		$object_type   = "include";
+		$perl_line_nr  = $1;
+		$perl_filename = $self->get_prod_dir.
+				 "/$caller_stack->[-1]->[0]";
 
-	if ( @{$caller_stack}  ) {
-		my $filename = $caller_stack->[@{$caller_stack}-1]->[3];
-		$object = $self->get_include_name ( filename => $filename );
-		# the CIPP line can only be determined by reading
-		# the include file
-		my $full_path = $self->get_inc_dir."/".$filename;
-		my $fh = FileHandle->new;
-		if ( open ($fh, $full_path) ) {
-			my $i = 0;
-			while (<$fh>) {
-				if ( /^\$_cipp_line_nr=(\d+)/ ) {
-					$cipp_line_nr = $1;
-				}
-				++$i;
-				last if $perl_line_nr == $i;
-			}
-			close $fh;
-		} else {
-			$cipp_line_nr = "unknown";
+	} elsif ( $message =~ /^.*\s+at\s+(.*?\.pm)\s+line\s+(\d+)/ ) {
+		# module
+		$object_type   = "module";
+		$perl_filename = $1;
+		$perl_line_nr  = $2;
+		if ( not @{$caller_stack} ) {
+			# no include called this module, so it was
+			# the toplevel CGI program
+			my $rel_filename = $perl_filename;
+			$rel_filename =~ s!^$prod_dir/!!;
+			$caller_stack = [ [ $rel_filename, undef, undef ] ];
 		}
+
+	} elsif ( $message =~ /\s+at\s+(.*?)\s+line\s+(\d+)/ ) {
+		# program level
+		$object_type   = "cgi";
+		$perl_filename = $1;
+		$perl_line_nr  = $2;
+		
+		# in SpeedyCGI even the script is in an eval
+		$perl_filename = $self->get_script_name
+			if $perl_filename =~ /\(eval/;
 	}
 
-	# print a HTTP header, if not yet printed
-	if ( not $self->get_http_header_printed ) {
-		print "content-type: text/html\n\n";
-	}
-
-	# open scripts or tables may confuse some browser,
-	# but we *want* our message to appear!
-	print "</script></table></table></table></table>".
-	      "</table></table></table></table>\n";
-
-	# this is the custom error text
-	my $error_text = $self->get_show_error_text ||
-		"A runtime exception was thrown.";
-
-	# Check $self->get_show_error only if called in CGI
-	# environment, not when executed in the shell.
-	
-	if ( defined $ENV{QUERY_STRING} and not $self->get_show_error ) {
-		print "<p><b>$error_text</b></p>\n";
-		return;
-	}
-
-	#-------------------------------------------------------------
-	# We must distinguish two runtime exception types:
-	#
-	# 1. exception was thrown from an Include or CIPP Program
-	#    => we have exact information of where the exception
-	#       was thrown. $cipp_line_nr/$object contain the current CIPP
-	#	line nr / object and $self->call_trace has exact
-	#	backtracing information. The actual Perl line number
-	#	can be taken from $message.
-	#
-	# 2. exception was thrown from a module
-	#    => $cipp_line_nr/$object contains the CIPP program line and
-	#       name which called the module's method throwing the
-	#       exception.
-	#    => $message shows the module name and Perl program line
-	#    => we have no correspondent CIPP line of the module
-	#	source code available
-	#    => so what to do:
-	#       - add $line/$object to the call backtrace
-	#	- set $line to undef
-	#	- extract package from module filename and
-	#         set $object to it
-	#	- extract $perl_line from error message
-	#-------------------------------------------------------------
-
-	my $object_type;
-
-	if ( $message =~ /^.*\s+at\s+(.*?\.pm)\s+line\s+(\d+)/ ) {
-		# a module exception
-		$object_type = "Module";
-
-		# add caller to stack
-		push @{$self->get_caller_stack}, [ $object, $cipp_line_nr, "unknown", "unknown" ];
-
-		# extract information from $message
-		my $module_path = $1;
-		$perl_line_nr   = $2;
-		$cipp_line_nr   = undef;
-
-		# determine module name (grep it's source for 'package')
-		# and the CIPP line number (if it's a CIPP module)
-		$object = undef;
-		my $fh = FileHandle->new;
-		if ( open ($fh, $module_path) ) {
-			my $i = 0;
-			while ( <$fh> ) {
-				if ( /package\s+([^\s;]+)/ ) {
-					$object = $1;
-				}
-				if ( /^\$_cipp_line_nr=(\d+)/ ) {
-					$cipp_line_nr = $1;
-				}
-				++$i;
-				last if $perl_line_nr == $i;
-			}
-			close $fh;
-		}
-		$object ||= "unknown";
-	} else {
-		$object_type = "Object";
-	}
+	# determine cipp line number by reading the Perl file
+	my $cipp_line_nr = $perl_line_nr ? $self->get_cipp_line_nr (
+		perl_line_nr => $perl_line_nr,
+		filename     => $perl_filename,
+	) : undef;
 
 	# strip off "at ..." stuff from the message
 	$message =~ s/\s+at\s+[^\s]+\s+line\s+(\d+)//;
 	$message =~ s/\s+at\s+\(eval.*?\)\s+line\s+(\d+)//;
 
 	# default values
-	$cipp_line_nr ||= "unknown";
 	$throw        ||= "generic";
-	$object       ||= "unknown";
-	$perl_line_nr ||= "unknown";
+	$cipp_line_nr ||= "-";
+	$perl_line_nr ||= "-";
 
 	# CIPP line nr is unexact, so add >= to it
-	$cipp_line_nr = "&gt;= $cipp_line_nr" if $cipp_line_nr ne "unknown";
+	$cipp_line_nr = ">= $cipp_line_nr" if $cipp_line_nr ne "-";
+
+	# this is the custom error text
+	my $error_text = $self->get_show_error_text ||
+		"A runtime exception was thrown.";
+
+
+	# build include backtrace
+	my $font = qq{<font face="Courier" color="black" size="2">};
+	my ($backtrace, $backtrace_html);
+	my $backtrace_fmt = "%-55s %-55s %-6s\n";
+	if ( @{$caller_stack} ) {
+		$backtrace = sprintf (
+			$backtrace_fmt.('-' x 118)."\n",
+			"Include filename", "Caller", "Line",
+		);
+		$backtrace_html .=
+			qq[<td>${font}Include filename</font></td>].
+			qq[<td>${font}Called by</font></td>].
+			qq[<td>${font}At line</font></td></tr>];
+		my $i = @{$caller_stack}-1;
+		foreach my $call ( reverse @{$caller_stack} ) {
+			my $caller = $call->[1];
+			if ( $caller =~ /CIPP::Runtime/ ) {
+				# Include
+				$caller = $caller_stack->[$i-1]->[0];
+			} elsif ( $caller =~ /\(eval\)/ ) {
+				# Main CGI
+				$caller = $self->get_script_name;
+				$caller =~ s!^(.*?)/prod/cgi-bin!cgi-bin!;
+			} else {
+				$caller =~ s/^main:://;
+			}
+			$backtrace .= sprintf($backtrace_fmt,$call->[0],$caller,$call->[2]);
+			$backtrace_html .=
+				qq[<tr><td>$font$call->[0]</font></td>].
+				qq[<td>$font$caller</font></td>].
+				qq[<td>$font$call->[2]</font></td></tr>];
+			--$i;
+		}
+	}
 
 	# print table with exception information
-	my $font = qq{<font face="Courier" color="black" size="2">};
 	my $html;
 	my $tmpl = <<__HTML;
 <p>
 <table border="1" cellpadding="4" bgcolor="white">
 <tr><td colspan="4" bgcolor="#eeeeee"><b><tt>$error_text</tt></b></td></tr>
-<tr><td valign="top">$font<b>$object_type</b></font></td><td colspan="3">$font%s</font></td></tr>
-<tr><td valign="top">$font<b>CIPP&nbsp;line&nbsp;</b></font></td><td colspan="3">$font%s</font></td></tr>
-<tr><td valign="top">$font<b>Perl&nbsp;line&nbsp;</b></font></td><td colspan="3">$font%s</font></td></tr>
-<tr><td valign="top">$font<b>Exception</b></font></td><td colspan="3">$font%s</font></td></tr>
 <tr><td valign="top">$font<b>Message</b></font></td><td colspan="3">$font%s</font></td></tr>
+<tr><td valign="top">$font<b>Exception</b></font></td><td colspan="3">$font%s</font></td></tr>
+<tr><td valign="top">$font<b>Error-File</b></font></td><td colspan="3">$font%s</font></td></tr>
+<tr><td valign="top">$font<b>Object-Type</b></font></td><td colspan="3">$font%s</font></td></tr>
+<tr><td valign="top">$font<b>Perl line</b></font></td><td colspan="3">$font%s</font></td></tr>
+<tr><td valign="top">$font<b>CIPP line</b></font></td><td colspan="3">$font%s</font></td></tr>
+<tr><td valign="top">$font<b>UEI</b></font></td><td colspan="3">$font%s</font></td></tr>
+<tr><td valign="top">$font<b>Script-File</b></font></td><td colspan="3">$font%s</font></td></tr>
 __HTML
 
-	$html = sprintf ($tmpl,$object,$cipp_line_nr,$perl_line_nr,$throw,$message);
+	$html = sprintf (
+		$tmpl, $message, $throw, $perl_filename,
+		$object_type, $perl_line_nr, $cipp_line_nr, $uei,
+		$self->get_script_name
+	);
 
-	# print caller stack, if not a 1st level exception
-	my $backtrace;
-	if ( @{$self->get_caller_stack} ) {
-		my $rowspan = @{$self->get_caller_stack} + 1;
-
-		$html .= <<__HTML;
-<tr><td rowspan="$rowspan" valign="top">$font<b>Backtrace</b></font></td>
-    <td>$font<b>Caller object</b></font></td>
-    <td>$font<b>CIPP line</b></font></td>
-    <td>$font<b>Perl line</b></font></td></tr>
-__HTML
-
-		foreach my $call ( reverse @{$self->get_caller_stack} ) {
-			pop @{$call};
-			$html .= qq{<tr>};
-			$html .= qq{<td>$font$_</font>} for @{$call};
-			$html .= qq{</tr>\n};
-			$backtrace .= "called by $call->[0], CIPP line $call->[1], Perl line $call->[2]\n";
-		}
+	if ( $backtrace ) {
+		$html .= qq[<tr><td valign="top" rowspan="].(@{$caller_stack}+1).
+			 qq[">$font<b>Include Backtrace</b></font></td>].
+			 $backtrace_html;
 	}
 
-	$html .= "</table></p>\n";
-	
-	print $html if defined $ENV{QUERY_STRING};
+	$html .= "</table>\n";
 
-	# print the same information in plain text, using a HTML comment
-	# in case of a layout disruption "view source" shows the
-	# exception information in a more readable form.
+	# Print error message to browser, if we allowed to do so
+	if ( $self->get_show_error and exists $ENV{QUERY_STRING} ) {
+		# print a HTTP header, if not yet printed
+		if ( not $self->get_http_header_printed ) {
+			print "content-type: text/html\n\n";
+		}
+
+		# open scripts or tables may confuse some browser,
+		# but we *want* our message to appear!
+		print "</textarea></script></table></table></table></table>".
+		      "</table></table></table></table>\n";
+
+	
+		# print HTML error message
+		print $html;
+
+	} elsif ( exists $ENV{QUERY_STRING} ) {
+		# print error notification to browser
+		print "<p><b>$error_text [UEI=$uei]</b></p>\n";
+	}
+		
+	# generate the same information in plain text, which is later
+	# printed inside a HTML comment, in case of a layout disruption
+	# "view source" shows the exception information in a more readable form.
 	$tmpl = <<__HTML;
-$object_type:    %s
-CIPP line: %s
-Perl line: %s
-Exception: %s
-Message:
-%s
-Backtrace:
-%s
+Message:     %s
+Exception:   %s
+Error-File:  %s
+Object-Type: %s
+Perl line:   %s
+CIPP line:   %s
+UEI:         %s
+Server:      %s
+Request-URI: %s
+Script-File: %s
 __HTML
 
 	$cipp_line_nr =~ s/&gt;= //;
+	$message =~ s/\s+$//;
 
-	my $msg = sprintf ($tmpl,$object,$cipp_line_nr,$perl_line_nr,$throw,$message,$backtrace);
-
+	my $msg = sprintf (
+		$tmpl, $message, $throw, $perl_filename,
+		$object_type, $perl_line_nr, $cipp_line_nr, $uei,
+		$ENV{SERVER_NAME},$ENV{REQUEST_URI},
+		$self->get_script_name
+	);
+	
+	if ( $backtrace ) {
+		$msg .= "\nBacktrace of Include calls:\n$backtrace";
+	}
+	
 	print "\n<!--\n\n$msg-->\n";
+
+	$msg =~ s/\s+$//;
+
+	# print message to CIPP logfile
+	$self->log (
+		type    => $throw,
+		pre     => "\n#== CIPP-EXCEPTION-LOG-START ".("=" x 51)."\n",
+		message => "\n".$msg,
+		post    => "#== CIPP-EXCEPTION-LOG-END ".("=" x 53)."\n",
+	);
 
 	die "$throw\t$message" if $self->get_throw_runtime_error;
 
-	$self->log (
-		type    => $throw,
-		message => "\n$msg",
-	);
-
 	1;
+}
+
+sub get_cipp_line_nr {
+	my $self = shift;
+	my %par = @_;
+	my ($filename, $perl_line_nr) = @par{'filename','perl_line_nr'};
+
+	my $cipp_line_nr;
+	my $fh = FileHandle->new;
+	if ( open ($fh, $filename) ) {
+		my $i = 0;
+		while (<$fh>) {
+			if ( /^#\s+cipp_line_nr=(\d+)/ ) {
+				$cipp_line_nr = $1;
+			}
+			++$i;
+			last if $perl_line_nr == $i;
+		}
+		close $fh;
+	}
+	
+	return $cipp_line_nr;
 }
 
 sub log {
 	my $self = shift;
 	my %par = @_;
-	my  ($type, $message, $filename, $throw) =
-	@par{'type','message','filename','throw'};
+	my  ($type, $message, $filename, $throw, $pre, $post) =
+	@par{'type','message','filename','throw','pre','post'};
 
 	$throw ||= "log";
-	
+
 	my $time = scalar (localtime);
 
 	my $program = $self->get_program_name;
@@ -521,10 +636,11 @@ sub log {
 	my $fh = FileHandle->new;
 	
 	if ( open ($fh, ">> $filename") ) {
-		if ( ! print $fh "$time\t$msg\n" ) {
+		if ( ! print $fh "$pre$time\t$msg\n$post" ) {
 			$log_error = "Can't write data to '$filename'";
 		}
 		close $fh;
+		chmod 0664, $filename;
 	} else {
 		$log_error = "Can't open file '$filename' for writing.";
 	}
@@ -561,6 +677,7 @@ sub html_quote {
 
         $text =~ s/&/&amp;/g;
         $text =~ s/</&lt;/g;
+        $text =~ s/>/&gt;/g;
         $text =~ s/\"/&quot;/g;
 
         return $text;
@@ -660,9 +777,17 @@ sub dbh {
 	
 	croak $self->stripped_exception ( throw => "sql_open" ) if $@;
 
+	$self->{dbh}->{$name} = $dbh;
+
 	$dbh->do ( $config->{init} ) if $config->{init};
 	
-	$self->{dbh}->{$name} = $dbh;
+        my $init_perl = $config->{init_perl};
+
+        return $self->error("DB init Perl code is no code ref. ".
+                            "Full CIPP3 installation applied?")
+            if $init_perl && !ref $init_perl eq 'CODE';
+
+        &$init_perl($dbh) if $init_perl;
 	
 	return $dbh;
 }
@@ -768,6 +893,7 @@ sub sql_do {
 
 sub close {
 	my $self = shift;
+
 	foreach my $dbh ( values %{$self->{dbh}} ) {
 		$dbh->rollback if not $dbh->{AutoCommit};
 		$dbh->disconnect;
@@ -793,8 +919,8 @@ sub add_include_subroutine {
 sub call_include_subroutine {
 	my $self = shift;
 	my %par = @_;
-	my  ($file, $input, $output, $caller, $cipp_line_nr) =
-	@par{'file','input','output','caller','cipp_line_nr'};
+	my  ($file, $input, $output,) =
+	@par{'file','input','output'};
 
 	# profiling start
 	my $start_time;
@@ -815,17 +941,19 @@ sub call_include_subroutine {
 	}
 
 	# trace include calls
-	my $perl_line_nr = (caller(0))[2];
-	push @{$self->get_caller_stack}, [ $caller, $cipp_line_nr, $perl_line_nr, $file ];
+	my $caller_stack = $self->get_caller_stack;
+	my @c0 = caller;
+	my @c1 = caller(1);
+	push @{$caller_stack}, [ "inc/".$file, $c1[0]."::".$c1[3], $c0[2]];
 
-	# load the subroutine
+	# load the subroutine (cached)
 	my $sub = $self->load_include_subroutine ($file);
 
 	# collect stat data, if configuried
 	$self->{stat} && $self->{stat}->log ("execute_include_start", $file);
 	
 	# excecute the subroutine
-	my $output_href = &$sub ($input);
+	my $output_href = &$sub($input);
 
 	# collect stat data, if configuried
 	$self->{stat} && $self->{stat}->log ("execute_include_end", $file);
@@ -849,7 +977,7 @@ sub call_include_subroutine {
 	$self->set_profiling_active($old_profiling_active);
 
 	# remove this call from caller stack
-	pop @{$self->get_caller_stack};
+	pop @{$caller_stack};
 
 	# profiling: print command duration
 	if ( $self->get_profiling_active ) {
@@ -907,12 +1035,12 @@ sub load_include_subroutine {
 	# filename of subroutine
 	my $perl_code_file = $full_path;
 	
-	# subroutine already loaded and up to date?
+	# subroutine already loaded and file didn't change in the meantime?
 	# then we can return the sub reference immediately
+	my $load_mtime = $INCLUDE_SUBS_LOADED_MTIME{$file};
+	my $mtime      = (stat($perl_code_file))[9];
 	if ( defined $INCLUDE_SUBS{$file} ) {
-		my $load_time = $INCLUDE_SUBS_LOADED{$file};
-		my $mtime = (stat($perl_code_file))[9];
-		return $INCLUDE_SUBS{$file} if $mtime < $load_time;
+		return $INCLUDE_SUBS{$file} if $mtime == $load_mtime;
 	}
 	
 	# otherwise load the subroutine perl code file
@@ -929,8 +1057,8 @@ sub load_include_subroutine {
 		throw => "INCLUDE"
 	) if $@ or not ref $sub;
 
-	# store load time in global hash
-	$INCLUDE_SUBS_LOADED{$file} = time;
+	# store load mtime in global hash
+	$INCLUDE_SUBS_LOADED_MTIME{$file} = $load_mtime;
 
 	# store subroutine in global hash
 	$INCLUDE_SUBS{$file} = $sub;
@@ -1097,11 +1225,10 @@ sub print_http_header {
 	
 	$self->set_http_header_printed (1);
 
-	if ( $content_type eq 'text/html' ) {
-		my $runtime  = $CIPP::Runtime::Request::VERSION;
+	if ( $content_type =~ m!text/html! && !$self->get_xhtml ) {
+		my $runtime  = $self->get_project_handle->get_cipp_runtime_version;
 		my $compiler = $self->get_project_handle->get_cipp_compiler_version;
-		print "<!-- Generated with CIPP, compiler version: $compiler, runtime version: $runtime -->\n";
-		print "<!-- CIPP - Copyright (c) dimedis GmbH, All Rights Reserved -->\n\n";
+		print "<!-- CIPP $compiler / $CIPP::Runtime::Request::VERSION | $runtime - Copyright (c) dimedis GmbH, All Rights Reserved -->\n\n";
 	}
 
 	1;
@@ -1118,6 +1245,45 @@ sub load_module {
 	require $name;
 
 	1;
+}
+
+sub set_locale_messages_lang {
+        my $self = shift;
+        my ($lang) = @_;
+        POSIX::setlocale(POSIX::LC_MESSAGES(), $lang);
+        POSIX::setlocale(POSIX::LC_TIME(), $lang);
+        1;
+}
+
+sub gettext {
+        my $self = shift;
+        my ($message, $data_href) = @_;
+
+        return $message if not $data_href;
+
+        my $re = join '|', map { quotemeta $_ } keys %{$data_href};
+
+        $message =~
+            s/\{($re)\}/defined $data_href->{$1} ?
+                        $data_href->{$1} : "{$1}"/ge;
+
+        return $message;
+}
+
+sub dgettext {
+	my $self = shift;
+	my ($domain, $message, $data_href) = @_;
+
+        my $trans = Locale::Messages::dgettext($domain, $message);
+	return $trans if not $data_href;
+
+        my $re = join '|', map { quotemeta $_ } keys %{$data_href};
+
+        $trans =~
+            s/\{($re)\}/defined $data_href->{$1} ?
+                        $data_href->{$1} : "{$1}"/ge;
+
+	return $trans;
 }
 
 1;
@@ -1165,6 +1331,12 @@ CIPP::Request - CIPP runtime environment interface
   # control error message output for this request
   CIPP->request->set_show_error ( $bool );
   CIPP->request->set_show_error_text ( $message );
+
+  # l10n: get translated message, optionally with placeholders
+  $translated = CIPP->request->gettext ( \$message, [ { key => value, ... } ] )
+
+  # l10n: print translated message, optionally with placeholders
+  CIPP->request->print_gettext ( \$message, [ { key => value, ... } ] )
 
 =head1 DESCRIPTION
 

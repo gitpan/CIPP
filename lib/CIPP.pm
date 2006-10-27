@@ -1,8 +1,8 @@
-# $Id: CIPP.pm,v 1.23 2003/08/07 08:09:33 joern Exp $
+# $Id: CIPP.pm,v 1.46 2006/05/29 11:25:09 joern Exp $
 
 package CIPP;
 
-$VERSION = "2.99.23";
+$VERSION = "3.0.8";
 
 __END__
 

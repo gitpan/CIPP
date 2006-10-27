@@ -1,3 +1,5 @@
+bin/cipp-link-static
+bin/cipp-l10n
 lib/CIPP.pm
 lib/CIPP/Debug.pm
 lib/CIPP/Manual.pm
@@ -22,3 +24,4 @@ Changes
 MANIFEST
 Makefile.PL
 test.pl
+META.yml                                 Module meta-data (added by MakeMaker)

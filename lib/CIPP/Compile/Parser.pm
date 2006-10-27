@@ -1,4 +1,4 @@
-# $Id: Parser.pm,v 1.23 2003/08/07 08:06:35 joern Exp $
+# $Id: Parser.pm,v 1.29 2006/05/16 14:58:54 joern Exp $
 
 package CIPP::Compile::Parser;
 
@@ -33,6 +33,8 @@ sub new {
 	@par{'program_name','start_context','magic_start','magic_end'};
 	my  ($no_http_header, $dont_cache, $url_par_delimiter) =
 	@par{'no_http_header','dont_cache','url_par_delimiter'};
+	my  ($config_dir, $trunc_ws) =
+	@par{'config_dir','trunc_ws'};
 
 	confess "Unknown object type '$object_type'"
 		if $object_type ne 'cipp' and
@@ -62,6 +64,8 @@ sub new {
 		dont_cache	     => $dont_cache,
 		no_http_header	     => $no_http_header,
 		url_par_delimiter    => $url_par_delimiter,
+		config_dir	     => $config_dir,
+		trunc_ws	     => $trunc_ws,
 		perl_code_sref	     => undef,
 		cache_ok	     => 0,
 		state		     => {},
@@ -70,6 +74,7 @@ sub new {
 		used_modules 	     => {},
 		messages	     => [],
 		context		     => [ $start_context ],
+		context_data         => [ "" ],
 		in_fh		     => undef,
 		out_fh  	     => undef,
 		tag_stack	     => [],
@@ -112,6 +117,7 @@ sub get_norm_name		{ shift->{norm_name}			}
 sub get_object_type		{ shift->{object_type}			}
 sub get_start_context		{ shift->{start_context}		}
 sub get_lib_path		{ shift->{lib_path}			}
+sub get_config_dir		{ shift->{config_dir}			}
 sub get_mime_type		{ shift->{mime_type}			}
 sub get_state			{ shift->{state}			}
 sub get_command2method		{ shift->{command2method}		}
@@ -121,6 +127,12 @@ sub get_no_http_header		{ shift->{no_http_header}		}
 sub get_used_modules		{ shift->{used_modules}			}
 sub get_magic_start		{ shift->{magic_start}			}
 sub get_magic_end		{ shift->{magic_end}			}
+sub get_trunc_ws		{ shift->{trunc_ws}			}
+sub get_text_domain {
+    my $self = shift;
+    return $self->{text_domain} if exists $self->{text_domain};
+    return $self->{text_domain} = $self->determine_text_domain;
+}
 
 #---------------------------------------------------------------------
 # Read and Write attribute accessors
@@ -146,6 +158,7 @@ sub get_current_tag_options	{ shift->{current_tag_options}		}
 sub get_current_tag_options_case  { shift->{current_tag_options_case}	}
 sub get_current_tag_options_order { shift->{current_tag_options_order}	}
 sub get_inc_trace		{ shift->{inc_trace}			}
+sub get_last_text_block		{ shift->{last_text_block}		}
 
 sub set_in_filename		{ shift->{in_filename}		= $_[1]	}
 sub set_out_filename		{ shift->{out_filename}		= $_[1]	}
@@ -167,6 +180,7 @@ sub set_current_tag_options	{ shift->{current_tag_options}	= $_[1]	}
 sub set_current_tag_options_case  { shift->{current_tag_options_case} = $_[1] }
 sub set_current_tag_options_order { shift->{current_tag_options_order}= $_[1] }
 sub set_inc_trace		{ shift->{inc_trace}		= $_[1]	}
+sub set_last_text_block		{ shift->{last_text_block}	= $_[1]	}
 
 #---------------------------------------------------------------------
 # Parser internal methods
@@ -673,10 +687,11 @@ sub context {
 
 sub push_context {
 	my $self = shift; $self->trace_in;
-	my ($context) = @_;
+	my ($context, $data) = @_;
 	
 	push @{$self->{context}}, $context;
-	
+	push @{$self->{context_data}}, $data;
+
 	return $context;
 }
 
@@ -684,7 +699,11 @@ sub pop_context {
 	my $self = shift; $self->trace_in;
 	my ($context) = @_;
 	
-	return pop @{$self->{context}};
+	my $context = pop @{$self->{context}};
+	my $data    = pop @{$self->{context_data}};
+
+	return ($context, $data) if wantarray;
+	return $context;
 }
 
 sub check_object_type {
@@ -693,6 +712,11 @@ sub check_object_type {
 	my ($name, $type, $message) = @par{'name','type','message'};
 
 	$message ||= "Object '$name' is not of type '$type'.";
+
+	return if not $self->object_exists (
+		name               => $name,
+		add_message_if_not => 1
+	);
 
 	my $object_type = $self->determine_object_type ( name => $name );
 
@@ -1302,36 +1326,37 @@ sub check_interfaces_are_compatible {
 	my $self = shift; $self->trace_in;
 	my %par = @_;
 	my ($oi, $ni) = @par{'old_interface', 'new_interface'};
-	
+
 	my ($par, $incompatible);
 	
 	$self->set_interface_changed (1);
 	
 	# 1. incompatible, if we have a new INPUT parameter,
 	#    or type has changed
-		
 	foreach $par ( keys %{$ni->{input}} ) {
 		return if $oi->{input}->{$par} ne $ni->{input}->{$par};
 	}
 	
 	# 2. an INPUT parameter was removed, but is no
 	#    optional parameter (of same type)
-	
 	foreach $par ( keys %{$oi->{input}} ) {
 		return if $oi->{input}->{$par} ne $ni->{input}->{$par} and
 		          $oi->{input}->{$par} ne $ni->{optional}->{$par};
 	}
 	
 	# 3. removal of an OPTIONAL parameter (or type switch)?
-	
 	foreach $par ( keys %{$oi->{optional}} ) {
 		return if $oi->{optional}->{$par} ne $ni->{optional}->{$par};
 	}
 	
 	# 4. removal of an OUTPUT parameter?
-	
 	foreach $par ( keys %{$oi->{output}} ) {
 		return if $oi->{output}->{$par} ne $ni->{output}->{$par};
+	}
+
+	# 5. NOQUOTE differ?
+	foreach $par ( keys %{$oi->{noquote}}, keys %{$ni->{noquote}} ) {
+		return if $oi->{noquote}->{$par} ne $ni->{noquote}->{$par};
 	}
 	
 	$self->set_interface_changed (0);
@@ -1427,7 +1452,8 @@ sub perl_error_check {
 	$pc->set_directory ( $dir );
 	$pc->set_lib_path ( $self->get_lib_path  );
 	$pc->set_name ( $self->get_program_name );
-	
+	$pc->set_config_dir ( $self->get_config_dir );
+
 	my $output_file;
 	if ( $self->get_object_type eq 'cipp-html' ) {
 		$output_file = $self->get_prod_filename,

@@ -1,11 +1,13 @@
-# $Id: NewSpirit.pm,v 1.13 2003/08/07 08:07:30 joern Exp $
+# $Id: NewSpirit.pm,v 1.24 2006/05/16 15:00:00 joern Exp $
+
+package CIPP::Runtime::NewSpirit;
+
+$VERSION = "1.0.2";
 
 package CIPP::Runtime::NewSpirit::Project;
 
 use strict;
 use Carp;
-
-my $DEBUG = -f "/tmp/cipp.debug.enable";
 
 my %PROJECT_INSTANCES;
 
@@ -14,6 +16,7 @@ sub get_project			{ shift->{project}			}
 sub get_prod_dir		{ shift->{config}->{prod_dir}		}
 sub get_cgi_dir			{ shift->{config}->{prod_dir}."/cgi-bin"}
 sub get_doc_dir			{ shift->{config}->{prod_dir}."/htdocs"	}
+sub get_l10n_dir                { shift->{config}->{prod_dir}."/l10n"	}
 sub get_config_dir		{ shift->{config}->{config_dir}		}
 sub get_inc_dir			{ shift->{config}->{inc_dir}		}
 sub get_lib_dir			{ shift->{config}->{lib_dir}		}
@@ -28,7 +31,10 @@ sub get_add_prod_dirs		{ shift->{config}->{add_prod_dirs} ||[]	}
 sub get_error_show		{ shift->{config}->{error_show}		}
 sub get_error_text		{ shift->{config}->{error_text}		}
 sub get_utf8			{ shift->{config}->{utf8}		}
+sub get_xhtml			{ shift->{config}->{xhtml}		}
 sub get_cipp_compiler_version	{ shift->{config}->{cipp_compiler_version}}
+sub get_cipp_runtime_version	{ "new.spirit $CIPP::Runtime::NewSpirit::VERSION" }
+sub get_cipp2_runtime		{ shift->{config}->{cipp2_runtime}	}
 
 sub get_config			{ shift->{config}			}
 sub get_request_cnt		{ shift->{request_cnt}			}
@@ -38,18 +44,6 @@ sub set_config			{ shift->{config}		= $_[1]	}
 sub set_request_cnt		{ shift->{request_cnt}		= $_[1]	}
 sub set_init_error_message	{ shift->{init_error_message}	= $_[1]	}
 
-sub debug {
-	return if not $DEBUG;
-	shift;
-	require File::Basename;
-	open (DEBUG,">>/tmp/cipp.debug.log") or return;
-	print DEBUG scalar(localtime(time)),
-		    " $$ '",File::Basename::basename($0),"'\t",
-		    join (" ", @_), "\n";
-	close DEBUG;
-	1;
-}
-
 sub init {
 	my $type = shift;
 	my %par = @_;
@@ -57,20 +51,20 @@ sub init {
 	@par{'back_prod_path','project'};
 
 	# only one instance per process and project
-	if ( defined $PROJECT_INSTANCES{$project} ) {
-		my $self = $PROJECT_INSTANCES{$project};
-		unshift @INC, $self->get_lib_dir;
-		unshift @INC, @{$self->get_add_lib_dirs};
-		unshift @INC, map { "$_/lib" } @{$self->get_add_prod_dirs};
-		$self->debug ("Project '$project' initialized FROM CACHE.");
-		$self->debug ("INC PATH:", @INC);
-		return 1;
-	}
+	return $PROJECT_INSTANCES{$project}
+		if defined $PROJECT_INSTANCES{$project};
 
 	# determine relative project prod root path
-	$0 =~ m!^(.*)[/\\][^/\\]+$!;
-	my $prod_dir = "$1/$back_prod_path";
-	
+	my $script_name = ( $0 =~ /\.cgi$/ ? $0 : undef ) ||
+			  $ENV{SCRIPT_FILENAME}           ||
+			  './foo.cgi';
+
+	my $prod_dir = $back_prod_path;
+
+	if ( $script_name =~ m!^(.*)[/\\][^/\\]+$! ) {
+		$prod_dir = "$1/$back_prod_path";
+	}
+
 	my $self = bless {
 		project	       => $project,
 		request_cnt    => 0,
@@ -82,18 +76,8 @@ sub init {
 		filename => "$prod_dir/config/cipp.conf"
 	) or return;
 	
-	# add project lib dir to @INC
-	unshift @INC, $self->get_lib_dir;
-	
-	# add additional configured project's lib dirs to @INC
-	unshift @INC, map { "$_/lib" } @{$self->get_add_prod_dirs};
-
-	# add additional configured dirs to @INC
-	unshift @INC, @{$self->get_add_lib_dirs};
-	
-	# debugging
-	$self->debug ("Project '$project' initialized FIRST TIME.");
-	$self->debug ("INC PATH:", @INC);
+	# setup @INC array
+	$self->setup_inc_path;
 
 	# register project instance
 	$PROJECT_INSTANCES{$project} = $self;
@@ -106,6 +90,23 @@ sub init {
 		binmode STDOUT;
 	}
 
+	# load CIPP2 Runtime, if requested
+	require CIPP::Runtime if $self->get_cipp2_runtime;
+
+        # init l10n/gettext framework
+        $self->init_l10n;
+
+	# return handle
+	return $self;
+}
+
+sub setup_inc_path {
+	my $self = shift;
+
+	unshift @INC, $self->get_lib_dir;
+	unshift @INC, @{$self->get_add_lib_dirs};
+	unshift @INC, map { "$_/lib" } @{$self->get_add_prod_dirs};
+
 	1;
 }
 
@@ -113,7 +114,6 @@ sub handle {
 	my $class = shift;
 	my %par = @_;
 	my ($project) = @par{'project'};
-	$class->debug ("Handle of project '$project' requested.");
 	return $PROJECT_INSTANCES{$project}
 }
 
@@ -127,8 +127,9 @@ sub read_base_config {
 	my $config = do $filename;
 	
 	if ( not ref $config ) {
+		require Cwd;
 		if ( not -f $filename ) {
-			$self->set_init_error_message ("CIPP base config '$filename' not found.");
+			$self->set_init_error_message ("CIPP base config '$filename' not found. CWD=".Cwd::cwd());
 		} elsif ( not -r $filename ) {
 			$self->set_init_error_message ("CIPP base config '$filename' not readable.");
 		} else {
@@ -178,6 +179,31 @@ sub init_error {
 	1;
 }
 
+sub init_l10n {
+        my $self = shift;
+        
+        my $l10n_dir     = $self->get_l10n_dir;
+        my $domains_file = "$l10n_dir/domains.conf";
+        return unless -f $domains_file;
+        
+        my $conf = do $domains_file;
+        
+        require Encode;
+        require Locale::Messages;
+        require POSIX;
+
+        foreach my $module ( values %{$conf} ) {
+            my $domain = $module->{domain};
+            Locale::Messages::bindtextdomain($domain, $l10n_dir);
+            Locale::Messages::bind_textdomain_codeset($domain, "utf-8");
+            Locale::Messages::bind_textdomain_filter($domain, sub {
+                Encode::_utf8_on($_[0]);$_[0]
+            });
+        }
+        
+        1;
+}
+
 package CIPP::Runtime::NewSpirit::Request;
 
 use vars qw ( @ISA );
@@ -211,9 +237,19 @@ sub new {
 sub init {
 	my $self = shift;
 	
+	# determine name of the script
+	# ($0 is messed up with SpeedyCGI, so fallback to
+	#  SCRIPT_FILENAME if no .cgi in there)
+	my $script_name = ( $0 =~ /\.cgi$/ ? $0 : undef ) ||
+			  $ENV{SCRIPT_FILENAME};
+	$self->set_script_name($script_name);
+
 	# change to program dir
-	$0 =~ m!^(.*)[/\\][^/\\]+$!;
+	$script_name =~ m!^(.*)[/\\][^/\\]+$!;
 	chdir $1 if $1;
+
+	# set $CIPP::ee (End of Element, XHTML conformity)
+	$CIPP::ee = $self->get_xhtml ? " /" : "";
 	
 	1;
 }
@@ -222,8 +258,10 @@ sub print_http_header {
 	my $self = shift;
 
 	my $mime_type = $self->get_mime_type;
-
-	if ( $mime_type =~ m!text/html! and $self->get_utf8 ) {
+	
+	if ( $mime_type =~ m!text/html!i &&
+	     $mime_type !~ /charset=/i   &&
+	     $self->get_utf8 ) {
 		$mime_type = "text/html; charset=utf-8";
 	}
 
@@ -279,7 +317,15 @@ sub resolve_filename {
 	my $filename;
 	
 	if ( $type eq 'cipp-config' ) {
-		$filename = $self->get_config_dir."/".$name.".config";
+		#-- $CIPP::Runtime::NewSpirit::CONFIG_DIR is set
+		#-- in PerlCheck.pm resp. cipp_perlcheck.pl, if
+		#-- this is a Project Install. It's set to the
+		#-- config directory of the local project installation.
+		my $config_dir =
+			$CIPP::Runtime::NewSpirit::CONFIG_DIR ||
+			$self->get_config_dir;
+
+		$filename = $config_dir."/".$name.".config";
 
 		if ( not -e $filename ) {
 			foreach my $config_dir ( map   { $_."/config" }

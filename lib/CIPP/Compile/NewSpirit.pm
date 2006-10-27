@@ -1,4 +1,4 @@
-# $Id: NewSpirit.pm,v 1.16 2003/08/07 08:06:06 joern Exp $
+# $Id: NewSpirit.pm,v 1.23 2006/05/16 14:58:29 joern Exp $
 
 package CIPP::Compile::NewSpirit;
 
@@ -13,8 +13,8 @@ use CIPP::Compile::Generator;
 sub new {
 	my $type = shift;
 	my %par = @_;
-	my  ($shebang, $project_root, $mime_type) =
-	@par{'shebang','project_root','mime_type'};
+	my  ($shebang, $project_root, $project_prod, $mime_type) =
+	@par{'shebang','project_root','project_prod','mime_type'};
 
 	confess "Please specify the following parameters:\n".
 	      "project_root\n".
@@ -29,6 +29,7 @@ sub new {
 
 	$self->set_gen_ns_shebang ($shebang);
 	$self->set_gen_ns_project_root ($project_root);
+	$self->set_gen_ns_project_prod ($project_prod);
 	$self->set_gen_ns_back_prod_path ($back_prod_path);
 
 	$self->get_state->{autoprint} = 1 if $mime_type ne 'cipp/dynamic';
@@ -61,10 +62,12 @@ sub new {
 sub get_gen_ns_shebang		{ shift->{gen_ns_shebang}		}
 sub get_gen_ns_back_prod_path	{ shift->{gen_ns_back_prod_path}	}
 sub get_gen_ns_project_root	{ shift->{gen_ns_project_root}		}
+sub get_gen_ns_project_prod	{ shift->{gen_ns_project_prod}		}
 
 sub set_gen_ns_shebang		{ shift->{gen_ns_shebang}	= $_[1]	}
 sub set_gen_ns_back_prod_path	{ shift->{gen_ns_back_prod_path}= $_[1]	}
 sub set_gen_ns_project_root	{ shift->{gen_ns_project_root}	= $_[1]	}
+sub set_gen_ns_project_prod	{ shift->{gen_ns_project_prod}	= $_[1]	}
 
 #---------------------------------------------------------------------
 # This interface must be implemented by the Generator/* modules
@@ -85,6 +88,7 @@ sub create_new_parser {
 		start_context => $self->get_start_context,	# ??? not actual context?
 		shebang       => $self->get_gen_ns_shebang,
 		project_root  => $self->get_gen_ns_project_root,
+		lib_path      => $self->get_lib_path,
 	);
 
 	$parser->set_inc_trace (
@@ -113,28 +117,30 @@ sub generate_project_handler {
 	$self->writef (<<'__EOC'
 use CIPP::Runtime::NewSpirit;
 
-# This BEGIN block is executed once under mod_perl.
-# (and will not be filtered for syntax check in
-#  new.spirit, which is indicated by the {# below)
-
 BEGIN {#
-    # initialize this process for this project
-    # (multi initializing per process/project is
-    #  prevented by the init method)
-    CIPP::Runtime::NewSpirit::Project->init (
-	project        => "%s",
-	back_prod_path => "%s",
-    );
+  #-- Do initialization in a BEGIN block, to get a proper
+  #-- @INC, so "use Some::Module::Coded::In::CIPP" will work.
+  CIPP::Runtime::NewSpirit::Project->init (
+      project        => "%s",
+      back_prod_path => "%s",
+  );
 }
 
-$_cipp_project = CIPP::Runtime::NewSpirit::Project->handle (
-    project => "%s",
+#-- Do initialization (again). We couldn't get the $_cipp_project
+#-- Variable out of the BEGIN{} block above, so we need to
+#-- get it here. Also the BEGIN block above is executed only once
+#-- in persistent environments (mod_perl, SpeedyCGI). Double
+#-- initialization is prevented by the init() method itself, the
+#-- overhead here is minimal.
+$_cipp_project = CIPP::Runtime::NewSpirit::Project->init (
+    project        => "%s",
+    back_prod_path => "%s",
 );
-
 __EOC
 		, $self->get_project,
 		  $self->get_gen_ns_back_prod_path,
 		  $self->get_project,
+		  $self->get_gen_ns_back_prod_path,
 	);
 }
 
@@ -152,14 +158,14 @@ sub generate_open_request {
 		my $http_header_file = $self->custom_http_header_file;
 		if ( $http_header_file ) {
 			$self->writef (
-				'CIPP->request->print_http_header ('."\n".
+				'$CIPP::request->print_http_header ('."\n".
 				'  custom_http_header_file => "%s",'."\n".
 				');'."\n",
 				$http_header_file
 			);
 		} else {
 			$self->write (
-				'CIPP->request->print_http_header;'."\n",
+				'$CIPP::request->print_http_header;'."\n",
 			);
 		}
 	}
@@ -253,15 +259,15 @@ sub get_object_url {
 		my $ext = $1;
 
 		if ( $object_type eq 'cipp' ) {
-			$object_url = '}.CIPP->request->get_cgi_url.qq{/'.$filename.'.cgi';
+			$object_url = '}.$CIPP::request->get_cgi_url.qq{/'.$filename.'.cgi';
 
 		} elsif ( $object_type eq 'cipp-html' or $object_type eq 'text' or
 		 	  $object_type eq 'jar' ) {
 			$ext =~ m!cipp-(.*)$!;
-			$object_url = '}.CIPP->request->get_doc_url.qq{/'.$filename.".$1";
+			$object_url = '}.$CIPP::request->get_doc_url.qq{/'.$filename.".$1";
 
 		} elsif ( $object_type eq 'cipp-img' or $object_type eq 'blob' ) {
-			$object_url = '}.CIPP->request->get_doc_url.qq{/'.$filename.".".$ext;
+			$object_url = '}.$CIPP::request->get_doc_url.qq{/'.$filename.".".$ext;
 
 		} elsif ( $object_type eq 'generic' ) {
 			my $meta_file = $self->get_object_filename ( name => $name ).".m";
@@ -271,10 +277,10 @@ sub get_object_url {
 			$filename =~ s![^/]+$!!;
 			my $orig_filename = $meta_data->{_original_filename};
 			if ( $meta_data->{install_target_dir} eq 'htdocs' ) {
-				$object_url = '}.CIPP->request->get_doc_url.qq{'.
+				$object_url = '}.$CIPP::request->get_doc_url.qq{'.
 					      $filename.'/'.$orig_filename;
 			} else {
-				$object_url = '}.CIPP->request->get_cgi_url.qq{'.
+				$object_url = '}.$CIPP::request->get_cgi_url.qq{'.
 					      $filename.'/'.$orig_filename;
 			}
 			$object_url =~ s!/+!/!g;
@@ -302,6 +308,9 @@ sub get_object_filenames {
 
 	my $base_dir = $self->get_gen_ns_project_root;
 	my $project  = $self->get_project;
+	my $prod_dir = $self->get_gen_ns_project_prod;
+	
+	$prod_dir ||= "$base_dir/prod";
 
 	my ($in_filename, $out_filename, $prod_filename,
 	    $dep_filename, $iface_filename, $err_filename,
@@ -309,21 +318,21 @@ sub get_object_filenames {
 	
 	if ( $object_type eq 'cipp-inc' ) {
 		$in_filename	    = "$base_dir/src/$norm_name.cipp-inc";
-		$out_filename       = "$base_dir/prod/inc/$norm_name.code";
-		$prod_filename      = "$base_dir/prod/inc/$norm_name.code";
+		$out_filename       = "$prod_dir/inc/$norm_name.code";
+		$prod_filename      = "$prod_dir/inc/$norm_name.code";
 		$dep_filename	    = "$base_dir/meta/##cipp_dep/$norm_name.dep";
 		$iface_filename     = "$base_dir/meta/##cipp_dep/$norm_name.iface";
 		$err_filename       = "$base_dir/meta/##cipp_dep/$norm_name.err";
-		$http_filename      = "$base_dir/prod/inc/$norm_name.http";
+		$http_filename      = "$prod_dir/inc/$norm_name.http";
 
 	} elsif ( $object_type eq 'cipp' ) {
 		$in_filename	    = "$base_dir/src/$norm_name.cipp";
-		$out_filename       = "$base_dir/prod/cgi-bin/$project/$norm_name.cgi";
-		$prod_filename      = "$base_dir/prod/cgi-bin/$project/$norm_name.cgi";
+		$out_filename       = "$prod_dir/cgi-bin/$project/$norm_name.cgi";
+		$prod_filename      = "$prod_dir/cgi-bin/$project/$norm_name.cgi";
 		$dep_filename	    = "$base_dir/meta/##cipp_dep/$norm_name.dep";
 		$iface_filename     = "";
 		$err_filename       = "$base_dir/meta/##cipp_dep/$norm_name.err";
-		$http_filename      = "$base_dir/prod/inc/$norm_name.http";
+		$http_filename      = "$prod_dir/inc/$norm_name.http";
 
 	} elsif ( $object_type eq 'cipp-html' ) {
 		my $src_filename = $self->get_object_filename (
@@ -339,7 +348,7 @@ sub get_object_filenames {
 		
 		$in_filename	    = "$base_dir/src/$norm_name.cipp-$ext";
 		$out_filename       = "/tmp/cipp_html_$$";
-		$prod_filename      = "$base_dir/prod/htdocs/$project/$norm_name.$ext";
+		$prod_filename      = "$prod_dir/htdocs/$project/$norm_name.$ext";
 		$dep_filename	    = "$base_dir/meta/##cipp_dep/$norm_name.dep";
 		$iface_filename     = "";
 		$err_filename       = "$base_dir/meta/##cipp_dep/$norm_name.err";
@@ -355,7 +364,7 @@ sub get_object_filenames {
 		if ( not $module_name ) {
 			$prod_filename = "/tmp/cipp_module_$$";
 		} else {
-			$prod_filename = "$base_dir/prod/lib/$module_name.pm";
+			$prod_filename = "$prod_dir/lib/$module_name.pm";
 		}
 
 		$dep_filename	    = "$base_dir/meta/##cipp_dep/$norm_name.dep";
@@ -383,6 +392,28 @@ sub get_relative_inc_path {
 	$filename =~ s!^$base_dir/prod/inc/!!;
 	
 	return $filename;
+}
+
+sub determine_text_domain {
+        my $self = shift;
+        
+        my $last_dir = $self->get_in_filename;
+
+        while ( 1 ) {
+            my $dir = dirname($last_dir);
+            last if $last_dir eq $dir;
+            $last_dir = $dir;
+            my $file = "$dir/po/domain.text-domain";
+            if ( -f $file ) {
+                open (my $fh, $file) or die "can't read $file";
+                my $domain = <$fh>;
+                chomp $domain;
+                close $fh;
+                return $domain;
+            }
+        }
+
+        return;
 }
 
 1;

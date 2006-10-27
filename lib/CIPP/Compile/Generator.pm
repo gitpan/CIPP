@@ -1,4 +1,4 @@
-# $Id: Generator.pm,v 1.27 2003/08/07 08:05:37 joern Exp $
+# $Id: Generator.pm,v 1.40 2006/05/19 08:03:37 joern Exp $
 
 package CIPP::Compile::Generator;
 
@@ -55,11 +55,9 @@ sub generate_close_exception_handler {
 		"}; # end of generic exception handler eval\n\n".
 		'# check for an exception (filters <?EXIT> exception)'."\n".
 		'if ( $@ and $@ !~ /_cipp_exit_command/ ) {'."\n".
-		'    CIPP->request->error ('."\n".
+		'    $CIPP::request->error ('."\n".
 		'        message      => $@,'."\n".
-		'        cipp_line_nr => $_cipp_line_nr,'."\n".
-		'        object       => qq{%s}'."\n".
-		'    ) if defined CIPP->request;'."\n".
+		'    ) if defined $CIPP::request;'."\n".
 		'}'."\n\n",
 		$self->get_program_name,
 	);
@@ -71,7 +69,7 @@ sub generate_close_request {
 	my $self = shift; $self->trace_in;
 	
 	$self->write (
-		'CIPP->request->close if defined CIPP->request;'."\n"
+		'$CIPP::request->close if defined $CIPP::request;'."\n"
 	);
 
 	1;
@@ -82,13 +80,14 @@ sub generate_debugging_code {
 	
 	# no debugging code für closed tags, var context and the <?>
 	# expression tag (which is the tag with the empty name).
-	return if $self->context eq 'var' or $self->get_current_tag_closed or
+	return if $self->context =~ /^var/ or
+		  $self->get_current_tag_closed or
 		  $self->get_current_tag eq '';
 
 	$self->write (
-		"\n",
-		'$_cipp_line_nr='.$self->get_current_tag_line_nr.
-		"; # ".$self->get_current_tag."\n\n"
+		'# cipp_line_nr='.
+		$self->get_current_tag_line_nr." ".
+		$self->get_current_tag."\n"
 	);
 	
 	1;
@@ -107,9 +106,8 @@ sub generate_include_open {
 	# An Include is a subroutine
 	$self->writef (
 		'package %s;'."\n\n".
-		'sub {'."\n".
-		'    use strict;'."\n".
-		'    my $_cipp_line_nr;'."\n",
+		'use strict;'."\n".
+		'sub {'."\n",
 		$package
 	);
 
@@ -190,7 +188,7 @@ sub generate_module_open {
 	
 	$self->write (
 		"use strict;\n",
-		'my $_cipp_line_nr;'."\n",
+#		'my $_cipp_line_nr;'."\n",
 	);
 	
 	1;
@@ -215,18 +213,28 @@ sub process_text {
 	my ($text) = @_;
 
 	$self->debug("GOT TEXT: '$$text'\n");
+
+	$self->set_last_text_block($$text);
 	
 	my $context   = $self->context;
 	my $autoprint = $self->get_state->{autoprint};
 
 	if ( ($autoprint and $context eq 'html') or $context eq 'force_html' ) {
-		if ( $$text ne '' and $$text =~ /[^\r\n\s]/ ) {
+		if ( $$text ne '' and $$text =~ /\S/ ) {
 			# print only if the chunk isn't empty or contains
 			# not only whitespace
 			$self->generate_debugging_code;
 
 			# escape § sign (which is the qouting delimiter)
 			$$text =~ s/§/\\§/g;
+
+			# truncate whitespace
+			if ( $self->get_trunc_ws ) {
+				$$text =~ s/^\s+//;
+				if ( not $$text =~ s/\s*\n\s*$/\n/ ) {
+					$$text =~ s/\s+$/ /;
+				}
+			}
 
 			# generate print() command
 			$self->write ("print qq§$$text§;\n");
@@ -293,6 +301,11 @@ sub cmd_expression {
 	my $RC = $self->RC_BLOCK_TAG;
 
 	if ( $self->get_current_tag_closed ) {
+		my $buffer = $self->get_last_text_block;
+		$self->add_tag_message (
+			message => "Expression must not have trailing semicolon"
+		) if $buffer =~ /;\s*$/;
+
 		$self->pop_context;
 		
 		$self->check_options (
@@ -645,7 +658,7 @@ sub cmd_log {
 	$options->{throw}    ||= "LOG";
 
 	$self->writef (
-		'CIPP->request->log ('."\n".
+		'$CIPP::request->log ('."\n".
 		'   type     => "%s",'."\n".
 		'   message  => "%s",'."\n".
 		'   filename => "%s",'."\n".
@@ -696,14 +709,40 @@ sub cmd_dump {
 
 	my $options_order = $self->get_current_tag_options_order;
 
-	$self->write(
-		"use Data::Dumper;\n".
-		"print '<pre>".
-		join(', ', @{$options_order}).
-		": ', Dumper (".
-		join(', ', @{$options_order}).
-		"), '</pre>\n';\n"
-	);
+	my $options = $self->get_current_tag_options;
+
+	my $stderr = delete $options->{stderr};
+	my $log    = delete $options->{log};
+
+	$self->write ("use Data::Dumper;\n");
+
+	my $dumper_code =
+		"join('',Data::Dumper->Dump ([".
+		join(', ', grep !/^stderr|log$/i, @{$options_order}).
+		"], [qw(".
+		join(' ', grep !/^stderr|log$/i, @{$options_order}).
+		")]))";
+
+	if ( $stderr ) {
+		$self->writef (
+			"print STDERR %s;\n",
+			$dumper_code
+		);
+	}
+	
+	if ( $log ) {
+		$self->writef (
+			'$CIPP::request->log(type=>"dump",message=>"\n".%s);'."\n",
+			$dumper_code
+		);
+	}
+
+	if ( not $stderr and not $log ) {
+		$self->writef (
+			'print "<pre>".%s."</pre>\n";',
+			$dumper_code
+		);
+	}
 
 	return $RC;
 }
@@ -791,7 +830,7 @@ sub cmd_htmlquote {
 	my $my_cmd = $options->{'my'} ? 'my ' : '';
 	
 	$self->write (
-		"$my_cmd$htmlvar=CIPP->request->html_quote($var);\n"
+		"$my_cmd$htmlvar=\$CIPP::request->html_quote($var);\n"
 	);
 
 	return $RC;
@@ -825,7 +864,7 @@ sub cmd_urlencode {
 	my $my_cmd = $options->{'my'} ? 'my ' : '';
 	
 	$self->write (
-		"$my_cmd$encvar=CIPP->request->url_encode($var);\n"
+		"$my_cmd$encvar=\$CIPP::request->url_encode($var);\n"
 	);
 
 	return $RC;
@@ -887,10 +926,10 @@ sub cmd_textarea {
 	}
 
 	$self->write (
-		qq[print qq{<textarea$options_text>},CIPP->request->html_quote (qq{]
+		qq[print qq{<textarea$options_text>},\$CIPP::request->html_quote (qq{]
 	);
 
-	$self->push_context('var');
+	$self->push_context('var_quote');
 	
 	return $RC;
 }
@@ -913,12 +952,15 @@ sub cmd_sub {
 		$self->write ("}\n");
 
 		# now a Perl Syntax check for the subroutine
-		my $var_decl = 'my ($_cipp_line_nr, ';
-		$var_decl .= "$_, " for @{$data->{import}};
-		$var_decl =~ s/, $//;
-		$var_decl .= ");\n";
-		$$buffer_sref = "$var_decl$$buffer_sref";
-		
+		my $var_decl;
+		if ( $data->{import} and @{$data->{import}} ) {
+			$var_decl = 'my (';
+			$var_decl .= "$_, " for @{$data->{import}};
+			$var_decl =~ s/, $//;
+			$var_decl .= ");\n";
+		}
+		$$buffer_sref = "use strict; $var_decl$$buffer_sref";
+
 		$self->perl_error_check ( perl_code_sref => $buffer_sref );
 		
 		return $RC;
@@ -1005,7 +1047,7 @@ sub cmd_hiddenfields {
 		$self->write (
 		    qq[print qq{].
 		    qq[<input type="hidden" name="$par" value="}.].
-		    qq[CIPP->request->html_field_quote(qq{$val}).qq{">\\n};\n] );
+		    qq[\$CIPP::request->html_field_quote(qq{$val}).qq{"\$CIPP::ee>\\n};\n] );
 	}
 
 	# generate dynamic hiddenfield code for arrays
@@ -1015,8 +1057,8 @@ sub cmd_hiddenfields {
 		$self->write (
 		    qq[{my \$cipp_tmp;\nforeach \$cipp_tmp ($val) {\n].
 		    qq[print qq{<input type="hidden" name="$par" ].
-		    qq[value="}.CIPP->request->html_field_quote(qq{\$cipp_tmp}).].
-		    qq[qq{">\\n};\n].
+		    qq[value="}.\$CIPP::request->html_field_quote(qq{\$cipp_tmp}).].
+		    qq[qq{"\$CIPP::ee>\\n};\n].
 		    qq[}\n}\n] );
 	}
 
@@ -1066,7 +1108,7 @@ sub cmd_input {
 	while ( ($par,$val) = each %{$options} ) {
 		if ( $par eq 'value' ) {
 			# quote the VALUE option
-			$code .= qq[ value="}.CIPP->request->html_quote ].
+			$code .= qq[ value="}.\$CIPP::request->html_quote ].
 		   		 qq[(qq{$options->{value}}).qq{"];
 
 		} elsif ( $par eq 'src' ) {
@@ -1097,16 +1139,17 @@ sub cmd_input {
 				$sticky_var = '$'.$options->{name};
 			}
 			$code .= qq[},($sticky_var eq qq{$options->{value}} ].
-				 qq[? " checked>\\n":">\\n");\n];
+				 qq[? " checked\$CIPP::ee>\\n":"\$CIPP::ee>\\n");\n];
+
 		} elsif ( $options->{type} =~ /^checkbox$/i and
 		          $options->{name} !~ /\$/ and not $options->{checked} ) {
 			# sticky feature for type="checkbox"
 			$sticky_var = '@'.$options->{name} if $sticky_var == 1;
-			$code .= qq[},(grep /^$options->{value}\$/,$sticky_var) ],
-				 qq[? " checked>\\n":">\\n";\n];
+			$code .= qq[},(grep /^$options->{value}\$/,$sticky_var) ].
+				 qq[? " checked\$CIPP::ee>\\n":"\$CIPP::ee>\\n";\n];
 		}
 	} else {
-		$code .= ">\\n};\n";
+		$code .= "\$CIPP::ee>\\n};\n";
 	}
 
 	$self->write($code);
@@ -1175,7 +1218,7 @@ sub cmd_fetchupload {
 	) || return $RC;
 
 	my $options = $self->get_current_tag_options;
-	$options->{throw} ||= "savefile";
+	$options->{throw} ||= "fetchupload";
 
 	my $var = $self->parse_variable_option (
 		option => 'var',
@@ -1183,7 +1226,7 @@ sub cmd_fetchupload {
 	) || return $RC;
 
 	$self->writef (
-		'CIPP->request->fetch_upload ('."\n".
+		'$CIPP::request->fetch_upload ('."\n".
 		'  filename => "%s",'."\n".
 		'  fh       => %s,'."\n".
 		'  throw    => "%s"'."\n".
@@ -1241,7 +1284,7 @@ sub cmd_interface {
 	);
 	
 	$self->write (
-		'CIPP->request->read_input_parameter ('."\n".
+		'$CIPP::request->read_input_parameter ('."\n".
 		"  mandatory => {\n"
 	);
 	
@@ -1416,7 +1459,7 @@ sub cmd_config {
 	my $require;
 
 	$self->writef (
-		'CIPP->request->read_config ('."\n".
+		'$CIPP::request->read_config ('."\n".
 		'    name  => "%s",'."\n".
 		'    throw => "%s"'."\n".
 		');'."\n",
@@ -1461,6 +1504,12 @@ sub cmd_form {
 	my $name = $options->{action};
 	delete $options->{action};
 
+	my $anchor;
+	if ( $name =~ /#/ ) {
+		($name, $anchor) = split ("#", $name, 2);
+		$anchor = "#$anchor";
+	}
+
 	return $RC if not $self->check_object_type (
 		name => $name,
 		type => 'cipp',
@@ -1468,7 +1517,7 @@ sub cmd_form {
 
 	my $object_url = $self->get_object_url ( name => $name );
 
-	my $code = qq[print qq{<form action="$object_url" ].
+	my $code = qq[print qq{<form action="$object_url$anchor" ].
 		   qq[method="$method"];
 
 	my ($par, $val);
@@ -1511,9 +1560,9 @@ sub cmd_a {
 	my $name = $options->{href};
 	delete $options->{href};
 
-	my $label;
+	my $anchor;
 	if ( $name =~ /#/ ) {
-		($name, $label) = split ("#", $name, 2);
+		($name, $anchor) = split ("#", $name, 2);
 	}
 
 	return $RC if not $self->object_exists (
@@ -1529,8 +1578,8 @@ sub cmd_a {
 	return $RC if not defined $object_url;
 
 	my $code;
-	if ( defined $label ) {
-		$code = qq[print qq{<a href="$object_url#$label"];
+	if ( defined $anchor ) {
+		$code = qq[print qq{<a href="$object_url#$anchor"];
 	} else {
 		$code = qq[print qq{<a href="$object_url"];
 	}
@@ -1573,9 +1622,9 @@ sub cmd_frame {
 
 	my $name = delete $options->{src};
 
-	my $label;
+	my $anchor;
 	if ( $name =~ /#/ ) {
-		($name, $label) = split ("#", $name, 2);
+		($name, $anchor) = split ("#", $name, 2);
 	}
 
 	return $RC if not $self->object_exists (
@@ -1591,8 +1640,8 @@ sub cmd_frame {
 	return $RC if not defined $object_url;
 
 	my $code;
-	if ( defined $label ) {
-		$code = qq[print qq{<frame src="$object_url#$label"];
+	if ( defined $anchor ) {
+		$code = qq[print qq{<frame src="$object_url#$anchor"];
 	} else {
 		$code = qq[print qq{<frame src="$object_url"];
 	}
@@ -1603,7 +1652,7 @@ sub cmd_frame {
 		$code .= qq[ $par="$val"];
 	}
 
-	$code .= ">};\n";
+	$code .= "\$CIPP::ee>};\n";
 
 	$self->write($code);
 
@@ -1677,7 +1726,7 @@ sub cmd_geturl {
 
 	} else {
 		$self->write (
-			qq{${my_cmd}$var=CIPP->request->get_object_url ( name => "$name", throw => "$throw")}
+			qq{${my_cmd}$var=\$CIPP::request->get_object_url ( name => "$name", throw => "$throw")}
 		);
 	}
 
@@ -1735,7 +1784,7 @@ sub cmd_geturl {
 			$par=lc($par);
 			$self->write (
 			    qq{.qq{${delimiter}$par=}.}.
-			    qq{CIPP->request->url_encode("$val")} );
+			    qq{\$CIPP::request->url_encode("$val")} );
 
 			$delimiter = $self->get_url_par_delimiter if $delimiter eq '?';
 		}
@@ -1748,7 +1797,7 @@ sub cmd_geturl {
 			$self->write (
 				qq[{my \$_cipp_tmp;\nforeach \$_cipp_tmp ($val) {\n].
 				qq[$var.="${delimiter}$par=".].
-				qq[CIPP->request->url_encode(\$_cipp_tmp);\n].
+				qq[\$CIPP::request->url_encode(\$_cipp_tmp);\n].
 				qq[}\n}\n] );
 
 			$delimiter = $self->get_url_par_delimiter if $delimiter eq '?';
@@ -1772,7 +1821,8 @@ sub cmd_img {
 
 	my $options = $self->get_current_tag_options;
 
-	my $name = delete $options->{src};
+	my $name   = delete $options->{src};
+	my $nosize = delete $options->{nosize};
 
 	my $object_url = $self->get_object_url (
 		name => $name,
@@ -1783,7 +1833,8 @@ sub cmd_img {
 
 	my $code = qq[print qq{<img src="$object_url"];
 
-	if ( not defined $options->{width} and
+	if ( not defined $nosize and
+	     not defined $options->{width} and
 	     not defined $options->{height} ) {
 		my $filename = $self->get_object_filename ( name => $name );
 		last if not $filename;
@@ -1801,7 +1852,7 @@ sub cmd_img {
 		$code .= qq[ $par="$val"];
 	}
 
-	$code .= " />};\n";
+	$code .= "\$CIPP::ee>};\n";
 
 	$self->write($code);
 
@@ -1894,7 +1945,7 @@ sub cmd_option {
 	my ($par, $val);
 	while ( ($par,$val) = each %{$options} ) {
 		if ( $par eq 'value' ) {
-			$code .= qq[ value="}.CIPP->request->html_field_quote].
+			$code .= qq[ value="}.\$CIPP::request->html_field_quote].
 		   		 qq[(qq{$options->{value}}).qq{"];
 		} else {
 			$par =~ tr/A-Z/a-z/;
@@ -1925,7 +1976,7 @@ sub cmd_option {
 
 	$self->write($code);
 	$self->write (
-		qq[CIPP->request->html_quote (qq^]
+		qq[\$CIPP::request->html_quote (qq^]
 	);
 
 	$self->push_context('var_quote');
@@ -1974,7 +2025,7 @@ sub cmd_getparam {
 
 	my $my = $options->{'my'} ? 'my' : '';
 
-	$self->write("$my $var = CIPP->request->param(\"$options->{name}\");\n");
+	$self->write("$my $var = \$CIPP::request->param(\"$options->{name}\");\n");
 
 	return $RC;
 }
@@ -1998,7 +2049,7 @@ sub cmd_getparamlist {
 
 	my $my = $options->{'my'} ? 'my' : '';
 
-	$self->write("$my $var = CIPP->request->param();\n");
+	$self->write("$my $var = \$CIPP::request->param();\n");
 
 	return $RC;
 }
@@ -2064,7 +2115,7 @@ sub cmd_profile {
 		) || return $RC;
 
 		$self->write (
-			'CIPP->request->stop_profiling;'."\n"
+			'$CIPP::request->stop_profiling;'."\n"
 		);
 
 		return $RC;
@@ -2089,7 +2140,7 @@ sub cmd_profile {
 	my $scale_unit  = $options->{scaleunit} || 0.2;
  
 	$self->write (
-		'CIPP->request->start_profiling ('."\n".
+		'$CIPP::request->start_profiling ('."\n".
 		"    deep        => $deep,\n".
 		"    name        => qq{$name},\n".
 		"    filename    => qq{$filename},\n".
@@ -2171,13 +2222,26 @@ sub get_dbh_code {
 	}
 
 	if ( $options->{dbh} ) {
+                #-- trivial, if DBH option was set
 		my $var = $self->parse_variable_option (
 			option => 'dbh',
 			types => [ 'scalar' ]
 		) || return;
 		return $var;
 
-	} else {
+	}
+        elsif ( $options->{db} =~ /\$/ ) {
+                #-- Obviously a variable database name, then this is
+                #-- resolved at runtime (need to normalize the name
+                #-- on-the-fly i.e. remove the PROJECT DOT from the
+                #-- variable's content).
+                return   '$CIPP::request->dbh(do{my $__db='
+                       . $options->{db}
+                       . ';$__db=~s/^[^.]+\.//;$__db})';
+                
+        }
+        else {
+                #-- otherwise it's a static new.spirit dotted object name
 		my $db = $options->{db};
 		if ( $db ) {
 			$self->check_object_type (
@@ -2202,7 +2266,7 @@ sub get_dbh_code {
 			normalized => 1
 		);
 
-		return 'CIPP->request->dbh("'.$db.'")';
+		return '$CIPP::request->dbh("'.$db.'")';
 	}
 }
 
@@ -2213,7 +2277,7 @@ sub cmd_getdbhandle {
 
 	$self->check_options (
 		mandatory => { 'var' => 1 },
-		optional  => { 'my' => 1, 'db' => 1 },
+		optional  => { 'my'  => 1, 'db' => 1 },
 	) || return $RC;
 
 	my $options = $self->get_current_tag_options;
@@ -2259,7 +2323,7 @@ sub cmd_switchdb {
 
 		$self->writef (
 			'};'."\n".
-			'CIPP->request->unswitch_db;'."\n".
+			'$CIPP::request->unswitch_db;'."\n".
 			'die $@ if $@;'."\n"
 		);
 		
@@ -2276,7 +2340,7 @@ sub cmd_switchdb {
 
 	$self->write (
 		qq[eval {\n].
-		qq[CIPP->request->switch_db ( dbh => $dbh_code );\n]
+		qq[\$CIPP::request->switch_db ( dbh => $dbh_code );\n]
 	);
 
 	return $RC;
@@ -2315,7 +2379,7 @@ sub cmd_autocommit {
 	my $throw  = $options->{throw} || 'autocommit';
 
 	$self->writef (
-		'CIPP->request->set_throw (qq{%s});'."\n",
+		'$CIPP::request->set_throw (qq{%s});'."\n",
 		$throw
 	);
 
@@ -2355,7 +2419,7 @@ sub cmd_commit {
 	my $throw  = $options->{throw} || 'commit';
 
 	$self->writef (
-		'CIPP->request->set_throw (qq{%s});'."\n",
+		'$CIPP::request->set_throw (qq{%s});'."\n",
 		$throw
 	);
 
@@ -2388,7 +2452,7 @@ sub cmd_rollback {
 	my $throw  = $options->{throw} || 'rollback';
 
 	$self->writef (
-		'CIPP->request->set_throw (qq{%s});'."\n",
+		'$CIPP::request->set_throw (qq{%s});'."\n",
 		$throw
 	);
 
@@ -2460,7 +2524,7 @@ sub cmd_sql {
 		$self->writef (
 			"    }\n".
 			'    $_cipp_sth->finish;'."\n".
-			'    CIPP->request->sql_select_finished;'."\n".
+			'    $CIPP::request->sql_select_finished;'."\n".
 			'}'."\n"
 		);
 		
@@ -2534,7 +2598,7 @@ sub cmd_sql {
                 # prepare statement
                 $self->writef (
                         '{'."\n".
-                        '    my $_cipp_sth = CIPP->request->sql_select ('."\n".
+                        '    my $_cipp_sth = $CIPP::request->sql_select ('."\n".
 			'        %s, qq{%s}, [%s], qq{%s}, qq{%s}'."\n".
 			'    );'."\n".
                         '    $_cipp_sth->execute(%s);'."\n",
@@ -2622,7 +2686,7 @@ sub cmd_sql {
 		$result_code = "${my_cmd}$result_var = " if $options->{result};
 
                 $self->writef (
-                        '%sCIPP->request->sql_do ('."\n".
+                        '%s$CIPP::request->sql_do ('."\n".
 			'    %s, qq{%s}, [%s], qq{%s}, qq{%s}'."\n".
 			');'."\n",
 			$result_code,
@@ -2711,10 +2775,21 @@ sub cmd_incinterface {
 	}
 	if ( @unknown ) {
 		$self->add_tag_message (
-			message => "Unknown NOQUOTE variables: ".
+			message => "Unknown NOQUOTE variable(s): ".
 				   join (", ", @unknown)
 		);
-		return $RC;
+	}
+
+	my %double;
+	foreach my $var ( keys %{$input}, keys %{$optional} ) {
+		$double{$var} = 1 if defined $input->{$var} and
+				     defined $optional->{$var};
+	}
+	if ( %double ) {
+		$self->add_tag_message (
+			message => "Illegal INPUT and OPTIONAL declared variable(s): ".
+				   join (", ", sort keys %double)
+		);
 	}
 
 	return $RC;
@@ -2834,10 +2909,8 @@ sub cmd_include {
 	);
 
 	# call subroutine
-	$code .= 'CIPP->request->call_include_subroutine ('."\n";
+	$code .= '$CIPP::request->call_include_subroutine ('."\n";
 	$code .= "\tfile         => '$sub_filename',\n";
-	$code .= "\tcaller       => '".$self->get_program_name."',\n";
-	$code .= "\tcipp_line_nr => ".$self->get_current_tag_line_nr.",\n";
 	$code .= "\tinput        => {\n";
 	
 	# input parameters
@@ -2906,9 +2979,8 @@ sub cmd_httpheader {
 			"  }; # end of generic exception handler eval\n\n".
 			'  # check for an exception (filters <?EXIT> exception)'."\n".
 			'  if ( $@ and $@ !~ /_cipp_exit_command/ ) {'."\n".
-			'      CIPP->request->error ('."\n".
+			'      $CIPP::request->error ('."\n".
 			'          message    => $@,'."\n".
-			'          line_nr    => $_cipp_line_nr,'."\n".
 			'          httpheader => "%s"'."\n".
 			'      );'."\n".
 			'      die "_cipp_exit_command";'."\n".
@@ -2985,13 +3057,107 @@ sub cmd_httpheader {
 		q[sub {]."\n".
 		q[  use strict;]."\n".
 		q[  shift;]."\n".
-		q[  my $_cipp_line_nr;]."\n".
-		q[  my %s = CIPP->request->get_http_header;]."\n".
+#		q[  my $_cipp_line_nr;]."\n".
+		q[  my %s = $CIPP::request->get_http_header;]."\n".
 		q[  eval {]."\n",
 		$var
 	);
 
 	return $RC;
+}
+
+sub cmd_lang {
+	my $self = shift; $self->trace_in;
+
+	my $RC = $self->RC_BLOCK_TAG;
+
+        if ( $self->get_current_tag_closed ) {
+            $self->pop_context;
+            $self->write("^)");
+            $self->write(";\n") if $self->context eq 'perl';
+            return $RC;
+        }
+
+	$self->check_options (
+		mandatory => {},
+		optional  => {},
+	) || return $RC;
+        
+        $self->push_context('var_noquote');
+        
+        $self->write("CIPP->request->set_locale_messages_lang(qq^");
+        
+        return $RC;
+}
+
+sub cmd_l {
+	my $self = shift; $self->trace_in;
+
+	my $RC = $self->RC_BLOCK_TAG;
+
+	if ( $self->get_current_tag_closed ) {
+		$self->check_options (
+			mandatory => {},
+			optional  => {},
+		) || return $RC;
+
+		my $buffer_sref      = $self->close_output_buffer;
+		my (undef, $options) = $self->pop_context;
+		my $context          = $self->context;
+
+                ${$buffer_sref} =~ s/^\s+//gm;
+                ${$buffer_sref} =~ s/\s*$/ /gm;
+                ${$buffer_sref} =~ s/\s+$//s;
+		${$buffer_sref} =~ s/\^/\\^/g;
+                ${$buffer_sref} =~ s/\s+/ /gs;
+
+		$options ||= {};
+
+		$self->write("print ") if $context ne 'perl' &&
+				          $context !~ /^var/;
+		$self->write("^.")     if $context eq 'var_quote';
+
+                my $domain = $self->get_text_domain;
+
+		if ( $options and keys %{$options} ) {
+			my $options_hash = "{ ";
+			while ( my ($k,$v) = each %{$options} ) {
+				$v =~ s/\^/\\^/g;
+				$options_hash .= "'$k' => qq^$v^, ";
+			}
+			$options_hash .= "}";
+			$self->writef (
+				qq[\$CIPP::request->dgettext("$domain",qq^%s^, $options_hash)],
+				${$buffer_sref}
+			);
+		} else {
+			$self->writef (
+				qq[\$CIPP::request->dgettext("$domain",qq^%s^)],
+				${$buffer_sref}
+			);
+		}
+
+		$self->write(";\n") if $context ne 'perl' &&
+				       $context !~ /^var/;
+		$self->write(".qq^") if $context eq 'var_quote';
+
+		return $RC;
+	}
+
+	$self->open_output_buffer;
+
+	my %data;
+	my $options_case = $self->get_current_tag_options_case;
+	my $options      = $self->get_current_tag_options;
+
+	foreach my $opt ( keys %{$options_case} ) {
+		$data{$options_case->{$opt}} = $options->{$opt};
+	}
+
+	$self->push_context('var_noquote', \%data);
+
+	return $RC;
+
 }
 
 1;

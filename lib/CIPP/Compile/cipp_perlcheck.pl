@@ -18,12 +18,13 @@
 #			directories to be added to @INC (only added
 #			for the first request, ignored by subsequent
 #			requests)
-#	3. Line		Directory to use for temp. files
-#	4. Line		A delimiter string. This string marks the
+#	3. Line		Directory of new.spirit config files
+#	4. Line		Directory to use for temp. files
+#	5. Line		A delimiter string. This string marks the
 #			end of the Perl code, sent after this line.
 #			The Perl code must not contain this delimiter
 #			string itself.
-#	5. Line		Perl code
+#	6. Line		Perl code
 #	...		  - " -
 #	n. Line		  - " -
 #	n+1. Line	The delimiter string from the third line.
@@ -51,6 +52,7 @@
 #		/www/cgi-bin
 #		/home/perl/lib:/web/perl/lib
 #		/tmp
+#		/usr/projects/foo/installed/prod/config
 #		__DELIMITER__
 #		use strict;
 #		$foo=42;
@@ -99,6 +101,7 @@ sub perlcheck_loop {
 		writelog ("got what='$what'");
 
 		last if $what eq '';
+
 		if ( $what !~ /^(check|execute)/ ) {
 			print STDERR "unknown action: $what\n";
 			last;
@@ -120,19 +123,19 @@ sub perlcheck_loop {
 		
 		writelog ("got add_lib_dirs=$add_lib_dirs");
 	
-		if ( $first and $add_lib_dirs ) {
-			my @lib = split(":", $add_lib_dirs);
-			unshift @INC, @lib;
-		}
-		
 		# now read the temp dir
-		
 		my $temp_dir = <STDIN>;
 		chomp $temp_dir;
 
 		writelog ("got temp_dir=$temp_dir");
 
 		last if $temp_dir eq '';
+
+		# read config dir
+		my $config_dir = <STDIN>;
+		chomp $config_dir;
+		
+		writelog ("got config_dir=$config_dir");
 
 		# now read the delimiter which marks the end of the
 		# perl code to be checked
@@ -154,8 +157,9 @@ sub perlcheck_loop {
 
 		# check the Perl code and write possible internal errors
 		# to $result_file
-
 		my $error;
+		my @OLD_INC = @INC;
+		unshift @INC, split(":", $add_lib_dirs);
 		if ( $what eq 'check' ) {
 			$error = perlcheck (
 				$execute_dir,
@@ -168,10 +172,11 @@ sub perlcheck_loop {
 				$filename,
 				$execute_dir,
 				$temp_dir,
+				$config_dir,
 				\$perl_code
 			);
 		}
-			
+		@INC = @OLD_INC;
 
 		my $delimiter = "__PERLCHECK_REQUEST_FINISHED__";
 		while ( $error =~ /$delimiter/ ) {
@@ -179,6 +184,8 @@ sub perlcheck_loop {
 		}
 
 		print "$delimiter\n";
+
+		writelog("print error: $error");
 
 		if ( $error ) {
 			print "$error\n";
@@ -188,6 +195,8 @@ sub perlcheck_loop {
 
 		$first = 0;
 	}
+	
+	writelog("leaving perlcheck_loop");
 }
 
 sub perlcheck {
@@ -198,7 +207,9 @@ sub perlcheck {
 	my $cwd_dir = cwd();
 	if ( $dir ) {
 		chdir $dir or return "Can't chdir to '$dir'";
-		$0 = "$dir/foo";
+		# .cgi is important here!
+		# Checked by CIPP::Runtime::NewSpirit!
+		$0 = "$dir/cipp_perlcheck.cgi";
 	}
 
 	# some CIPP specific error handler stuff
@@ -210,30 +221,23 @@ sub perlcheck {
 	# they'll be executed inside our eval, but don't
 	# want any code to execute.
 	
-	# (dont nuke CIPP BEGIN blocks für cipp_back_prod_path
-	#  and library path addition)
-	$$perl_sref =~ s/BEGIN\s*\{([^\#\$])/{$1/gs;
-	$$perl_sref =~ s/END\s*\{/{/gs;
+	# disable BEGIN and END blocks
+	$$perl_sref =~ s/BEGIN//gs;
+	$$perl_sref =~ s/END//gs;
 
 	writelog ($$perl_sref);
 
 	# evaluate Perl code and reset error handler
 	my $error = eval_perl_code ($perl_sref);
-#open (OUT,">/tmp/cipp3-debug.err");
-#print OUT $error;
-#close OUT;
-
-#	writelog ($error);
 
 	# change to old directory
-
 	chdir $cwd_dir;
 
 	return $error;
 }
 
 sub perlexecute {
-	my ($catch_file, $dir, $temp_dir, $perl_sref) = @_;
+	my ($catch_file, $dir, $temp_dir, $config_dir, $perl_sref) = @_;
 
 	writelog ("perlexecute request started");
 
@@ -242,7 +246,9 @@ sub perlexecute {
 	my $cwd_dir = cwd();
 	if ( $dir ) {
 		chdir $dir or return "Can't chdir to '$dir'";
-		$0 = "$dir/foo";
+		# .cgi is important here!
+		# Checked by CIPP::Runtime::NewSpirit!
+		$0 = "$dir/cipp_perlcheck.cgi";
 	}
 
 	# redirect STDOUT
@@ -279,7 +285,16 @@ sub perlexecute {
 	writelog ("execute perl code: $0");
 	writelog ("perl code: ".$$perl_sref);
 
+	# probably set a different config directory
+	$CIPP::Runtime::NewSpirit::CONFIG_DIR = $config_dir
+		if $config_dir;
+
+	writelog ("config dir: $config_dir");
+
 	my $error = exec_perl_code ($perl_sref);
+
+	# delete config dir setting
+	$CIPP::Runtime::NewSpirit::CONFIG_DIR = undef;
 
 	# change to old directory
 	writelog ("cd $cwd_dir");
@@ -307,12 +322,12 @@ sub crash {
 
 sub writelog {
 	my ($msg) = @_;
-return;
+	return if not -f "/tmp/do.the.cipp3debug";
 	my $date = scalar(localtime(time));
 	open (LOG, ">> /tmp/perlcheck.log");
 	select LOG; $| = 1; select STDOUT;
 	print LOG "-" x 80, "\n";
-	print LOG "$date $$\t$msg\n";
+	print LOG "cipp_perlcheck.pl: $date $$\t$msg\n";
 	close LOG;
 	
 	1;

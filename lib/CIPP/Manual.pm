@@ -342,9 +342,17 @@ Alternative execution of a block
 
 Subsequent conditional execution
 
+=item <?EXIT>
+
+Abort the program
+
 =item <?FOREACH>
 
 Loop iterating with a variable over a list
+
+=item <?HTML>
+
+Switches to HTML context
 
 =item <?IF>
 
@@ -577,6 +585,10 @@ Dumps preformatted contents of data structures
 =item <?>
 
 Print arbitrary Perl expressions
+
+=item <?_>
+
+Do l10n with Locale::TextDomain
 
 =back
 
@@ -811,6 +823,8 @@ This is the CIPP internal name of the database for this command. In CGI::CIPP or
 
 If DB is ommited the project default database is used.
 
+If DB is a variable name (resp. something containing a $ sigil) the content of this variable will be evaluated to the corresponding database name at runtime.
+
 =item B<DBH>
 
 Use this option to pass an existing DBI database handle, which should used for this SQL command.  You can't use the DBH option in conjunction with DB.
@@ -1016,6 +1030,8 @@ This is the CIPP internal name of the database for this command. In CGI::CIPP or
 
 If DB is ommited the project default database is used.
 
+If DB is a variable name (resp. something containing a $ sigil) the content of this variable will be evaluated to the corresponding database name at runtime.
+
 =item B<DBH>
 
 Use this option to pass an existing DBI database handle, which should used for this SQL command.  You can't use the DBH option in conjunction with DB.
@@ -1143,6 +1159,8 @@ This is the CIPP internal name of the database for this command. In CGI::CIPP or
 
 If DB is ommited the project default database is used.
 
+If DB is a variable name (resp. something containing a $ sigil) the content of this variable will be evaluated to the corresponding database name at runtime.
+
 =item B<DBH>
 
 Use this option to pass an existing DBI database handle, which should used for this SQL command.  You can't use the DBH option in conjunction with DB.
@@ -1206,19 +1224,27 @@ Debugging
 
 =head2 Syntax
 
- <?DUMP $var_1 ... $var_n>
+ <?DUMP [LOG] [STDERR] $var_1 ... $var_n>
 
 =head2 Description
 
-The <?DUMP> command dumps the contents of the given variables using Data::Dumper, inside of a HTML <pre></pre> block.
+The <?DUMP> command dumps the contents of the given variables using Data::Dumper, inside of a HTML <pre></pre> block. By default the data is written to STDOUT (into the HTML page), but you can alternatively write the data to CIPP's logfile and/or STDERR.
 
 =head2 Parameter
 
 =over 8
 
-$var_1 .. $var_n
+=item B<LOG>
 
-The contents of this variables are dumped to STDOUT.
+Dumps the data to CIPP's logfile, instead of STDOUT.
+
+=item B<STDERR>
+
+Dumps the data to STDERR (and thus the webserver's error log), instead of STDOUT.
+
+=item B<$var_1 .. $var_n>
+
+Variable, which should be dumped.
 
 =back
 
@@ -1293,6 +1319,39 @@ Larry and Linus get personal greeting messages:
   <?ELSE>
     Hi Stranger!
   <?/IF>
+
+=head1 COMMAND <?EXIT>
+
+=head2 Type
+
+Control Structure
+
+=head2 Syntax
+
+ <?EXIT>
+
+=head2 Description
+
+<?EXIT> aborts the current program. You can use it at CGI program level and in an Include at any time, but not inside a <?TRY> resp. eval {} block! <?EXIT> issues a special exception, which is catched by the default exception handler and does the necessary request cleanup (e.g. closing pending database connections).
+
+=head2 Note
+
+Due to the internal implementation as an exception, you can't use <?EXIT> inside a <?TRY> or eval{} block, unless you catch the special exception "_cipp_exit_command" and throw it upwards yourself. 
+
+=head2 Example
+
+Exit the program if the user doesn't know the preconfigured secret:
+
+  <?INTERFACE INPUT="$secret">
+
+  <?IF COND="$secret ne $conf::the_ultimate_secret">
+    <p>
+    You don't know the secret. Go away!
+    </p>
+    <?EXIT>
+  <?/IF>
+
+  You're welcome, secret keeper!
 
 =head1 COMMAND <?FETCHUPLOAD>
 
@@ -1418,7 +1477,7 @@ HTML Tag Replacement
 
 =head2 Syntax
 
- <?FORM ACTION=cgi_file
+ <?FORM ACTION="target_action_object[#anchor]"
         [ additional_<FORM>_parameters ... ] >
  ...
  <?/FORM>
@@ -1433,7 +1492,7 @@ HTML Tag Replacement
 
 =item B<ACTION>
 
-This is the name of the form target CGI program, expected as an URL in CGI::CIPP or Apache::CIPP environments and in dot separated object notation in a new.spirit environment.
+This is the name of the form target CGI program, expected as an URL in CGI::CIPP or Apache::CIPP environments and in dot separated object notation in a new.spirit environment. You may optionally add an anchor (which should be defined using <A NAME> in the referred page) using the # character as a delimiter.
 
 =item B<additional_FORM_parameters>
 
@@ -1529,6 +1588,8 @@ If you set the MY switch the created variable will be declared using 'my'. Its s
 This is the CIPP internal name of the database for this command. In CGI::CIPP or Apache::CIPP environment this name has to be defined in the appropriate global configuration. In a new.spirit environment this is the name of the database configuration object in dot separated notation.
 
 If DB is ommited the project default database is used.
+
+If DB is a variable name (resp. something containing a $ sigil) the content of this variable will be evaluated to the corresponding database name at runtime.
 
 =back
 
@@ -1786,6 +1847,37 @@ This is a form in a new.spirit environment, pointing to the object "x.secure.mes
   <INPUT TYPE=SUBMIT VALUE="show messages">
   <?/FORM>
 
+=head1 COMMAND <?HTML>
+
+=head2 Type
+
+Control Structures
+
+=head2 Syntax
+
+ <?HTML>
+   ...
+ <?/HTML>
+
+=head2 Description
+
+This command switches the CIPP program context to HTML. It's handy if you're doing a lot of logic and control structure stuff inside a <?PERL> block, but occasionally need some HTML output. You can nest <?PERL> and <?HTML> block arbitrarily.
+
+=head2 Example
+
+Some useless code in a <?PERL> block, with some <?HTML> output:
+
+  <?PERL>
+    if ( $foo ne $bar ) {
+      <?HTML>
+        <p>
+	Sorry, I have to tell you, that \$foo and \$bar
+	differ.
+	</p>
+      <?/HTML>
+    }
+  <?/PERL>
+
 =head1 COMMAND <?HTMLQUOTE>
 
 =head2 Type
@@ -1945,14 +2037,15 @@ HTML Tag Replacement
 
 =head2 Syntax
 
- <?IMG SRC=image_file
+ <?IMG SRC="image_file"
+       [ NOSIZE ]
        [ additional_<IMG>_parameters ... ] >
 
 =head2 Description
 
 A HTML <IMG> Tag will be generated, whoms SRC option points to the appropriate image URL.
 
-If no WIDTH or HEIGHT is given, CIPP tries at compile time to determine the image's dimensions using the Perl module Image::Size and sets WIDTH and HEIGHT accordingly in the generated <IMG> tag. If the Image::Size module isn't installed on the system, this step is silently skipped.
+If no WIDTH or HEIGHT is given and not NOSIZE, CIPP tries at compile time to determine the image's dimensions using the Perl module Image::Size and sets WIDTH and HEIGHT accordingly in the generated <IMG> tag. If the Image::Size module isn't installed on the system, this step is silently skipped.
 
 =head2 Parameter
 
@@ -1961,6 +2054,10 @@ If no WIDTH or HEIGHT is given, CIPP tries at compile time to determine the imag
 =item B<SRC>
 
 This is the name of the image, expected as an URL in CGI::CIPP or Apache::CIPP environments and in dot separated object notation in a new.spirit environment.
+
+=item B<NOSIZE>
+
+Set this if you don't want CIPP to determine the image dimensions and to set WIDTH/HEIGHT accordingly.
 
 =item B<additional_IMG_parameters>
 
@@ -2165,7 +2262,7 @@ Only the TYPEs ,radio" and ,checkbox" are specially handled when the STICKY opti
 
 =item B<STICKY>
 
-If this option is set and the TYPE of the input widget is either ,radio" or ,checkbox" CIPP will generate the CHECKED option automatically, if the value of the corresponding Perl variable (which is $parameter_name for TYPE="radio" and @parameter_name for TYPE="checkbox") equals to the VALUE of this widget. If you assign a value to the STICKY option, this will be taken as the Perl variable for checking the state of the widget. But the default behaviour of deriving the name from the NAME option will fit most cases.
+If this option is set and the TYPE of the input widget is either "radio" or "checkbox" CIPP will generate the CHECKED option automatically, if the value of the corresponding Perl variable (which is $parameter_name for TYPE="radio" and @parameter_name for TYPE="checkbox") equals to the VALUE of this widget. If you assign a value to the STICKY option, this will be taken as the Perl variable for checking the state of the widget. But the default behaviour of deriving the name from the NAME option will fit most cases.
 
 =item B<additional_INPUT_parameters>
 
@@ -2181,15 +2278,15 @@ If you use the STICKY feature in conjuncion with checkboxes, please note that th
 
 We generate two HTML input fields, a simple text and a password field, both initialized with some values. Also two checkboxes are generated, using the STICKY feature to initalize their state genericly.
 
-  <?VAR MY NAME=$username>larry<?/VAR
-  <?VAR MY NAME=$password>this is my "password"<?/VAR>
-  <?INPUT TYPE=TEXT SIZE=40 VALUE=$username>
-  <?INPUT TYPE=PASSWORD SIZE=40 VALUE=$password>
+  <?VAR MY NAME="$username">larry<?/VAR
+  <?VAR MY NAME="$password">this is my "password"<?/VAR>
+  <?VAR MY NAME="@check">42<?/VAR>
 
-  <?VAR MY NAME=$check>42<?/VAR>
-  <?INPUT TYPE=CHECKBOX NAME="check" VALUE="42"
+  <?INPUT TYPE="TEXT" SIZE="40" VALUE="$username">
+  <?INPUT TYPE="PASSWORD" SIZE="40" VALUE="$password">
+  <?INPUT TYPE="CHECKBOX" NAME="check" VALUE="42"
           STICKY> 42
-  <?INPUT TYPE=CHECKBOX NAME="check" VALUE="43"
+  <?INPUT TYPE="CHECKBOX" NAME="check" VALUE="43"
           STICKY> 43
 
 This will produce the following HTML code:
@@ -2261,6 +2358,57 @@ A HTML form which adresses this CGI program may look like this (assuming we are 
     <P>lastname:
     <?INPUT TYPE=TEXT NAME=lastname>
   <?/FORM>
+
+=head1 COMMAND <?L>
+
+=head2 Type
+
+Miscellaneous
+
+=head2 Syntax
+
+ <?l [key="value" ...] >
+   Message to be translated with Locale::TextDomain,
+   including placehoders: {key}
+ <?/l>
+
+=head2 IMPORTANT NOTE
+
+This syntax is functionally functional, but currently implemented without any active translation. The message text is passed through as-is, including placeholder substitution. Translation functionality will follow, inlcuding the neccessary command line tools to extract the message catalog from CIPP source files.
+
+=head2 Description
+
+This command uses (resp. will use) the Locale::TextDomain module to translate the text in the enclosed block, including the substitution of placeholders with actual values.
+
+Placeholder names are written in curly brackets. The actual values are passed as options to the <?L> command. Note that the placeholder names are treated case sensitive.
+
+You may use this command in HTML and PERL context as well. In HTML context the translated text is printed into the HTML page. In PERL context a Perl expression is generated which can be used in any expression context, e.g. a simple variable assignment or as a part of a arbitrary complex Perl expression.
+
+=head2 Examples
+
+ Print a translated "Hello World":
+ 
+ <?l>Hello World<?/l>
+
+ Placeholder example:
+
+ <?l cnt="$age">You are {age} year(s) old.<?/l>
+
+ Use in Perl Context
+ 
+ <?PERL>
+   #-- Simple variable assignment
+   my $translated = <?l age="42">You You are {age} year(s) old.<?/l>;
+
+   #-- Assign a bold message to a variable
+   my $translated_bold =
+   	"<b>".
+	<?l age="42">You are {age} year(s) old.<?/l>.
+	"</b>";
+
+   #-- Throw a translated error message
+   die <?l>A fatal error occured<?/l>;
+ <?/PERL>
 
 =head1 COMMAND <?LOG>
 
@@ -2345,13 +2493,13 @@ The generated Perl code will be installed in the project specific lib/ folder an
 
 =item B<NAME>
 
-This is the name of the module you want to use. Nested module names are delimited by ::.
+This is the Perl name of the module you want to use. Nested module names are delimited by ::.
 
 It is not possible to use a variable or expression for NAME, you must always use a literal string here.
 
 =item B<ISA>
 
-You can specify a comma separated list of module names here, which should be added the the module's @ISA array (that means: the modules from which the actual module is derived). All modules listed here will be loaded dynamically using Perl's require command. If you need compile time loading of the modules (e.g. for importing symbols in the actual namespace), use Perl's "use base" instead or load all modules explicitely with the "use" command.
+You can specify a comma separated list of module names, which should be added the the module's @ISA array (that means: the modules from which the actual module is derived). All modules listed here will be loaded dynamically using Perl's require command. If you need compile time loading of the modules (e.g. for importing symbols in the actual namespace), use Perl's "use base" instead or load all modules explicitely with the "use" command.
 
 =back
 
@@ -2359,6 +2507,9 @@ You can specify a comma separated list of module names here, which should be add
 
   <?MODULE NAME="Test::Module" ISA="Test::Base">
 
+  #-- Using CIPP's <?SUB> command enables a lexical
+  #-- variable check inside the sub, which prevents
+  #-- the sub from accessing lexicals defined outside.
   <?SUB NAME="new">
     <?PERL>
       my $class = shift;
@@ -2368,12 +2519,13 @@ You can specify a comma separated list of module names here, which should be add
     <?/PERL>
   <?/SUB>
 
-  <?SUB NAME="print_foo">
-    <?PERL>
+  #-- But you can write the sub still as a sub ;)
+  <?PERL>
+    sub print_foo {
       my $self = shift;
-      print $self->{foo}, ,<p>\n";
-    <?/PERL>
-  <?/SUB>
+      print $self->{foo},"<p>\n";
+    }
+  <?/PERL>
 
   <?/MODULE>
 
@@ -2512,63 +2664,94 @@ Preprocessor Command
 
 =head2 Syntax
 
- <?!PROFILE { ON | OFF }
-            [ DEEP ] >
+ <?!PROFILE [ NAME="profile_name" ]
+	    [ DEEP ]
+ 	    [ FILENAME="profile_filename" ]
+	    [ FILTER="minimum_duration" ]
+	    [ SCALEUNIT="" ] > 
+   ...
+ <?!/PROFILE>
 
 =head2 Description
 
-This preprocessor command controls the generation of profiling code. This feature is currently experimental, the syntax of the <?!PROFILE> command may change in future.
+This preprocessor command controls the generation of profiling code for a specific block.
 
-If you switch profiling on, CIPP will generate profile code for the rest of the file, respectively until a <?!PROFILE OFF> command occurs. Switching profiling at runtime is not possible, because the <?!PROFILE> command takes effect on the preprocessor.
+Currently two tasks are profiled: SQL statements and Include executions. If profiling is active, a line is added to the given log file for every executed SQL and Include command, giving a protocol of the execution durations. You need the Perl module Time::HiRes installed on your system if you want to use profiling.
 
-Currently two tasks are profiled: SQL statements and Include executions. If profiling is switched on, you'll get a line on STDERR for every executed SQL and Include command, which contains the corresponding execution time. You need the Perl module Time::HiRes installed on your system if you want to use profiling.
+The profile log file will be truncated automatically, if the size exceeds 8MB.
 
 =head2 Parameter
 
 =over 8
 
-ON | OFF
+=item B<NAME>
 
-Switch profiling either on or off.
+Gives a name to this profile action, which will appear in the log output.
 
 =item B<DEEP>
 
-If you set the DEEP option, the content all processed Includes will be profiled, too. Otherwise only the document itself, where the <?!PROFILE> command stands, will be profiled.
+If you set the DEEP option, the content all included Includes will be profiled, too. Otherwise only the document itself, where the <?!PROFILE> command stands, will be profiled.
 
 Note that the DEEP switch can produce lots of output.
 
+=item B<FILENAME>
+
+Specifies the filename for the profile output. This defaults to "$project_log_dir/profile.log".
+
+=item B<FILTER>
+
+You can filter very fast executed sections by defining a minimum duration here. E.g. set this to "1.2" if you want to omit all entries which need less than 1.2 seconds. This defaults to 0.
+
+=item B<SCALEUNIT>
+
+Each profile log entry has a "time meter", which prints five o's, for a duration of 1 second (see example output beyond). That's a B<SCAULEUNIT> of 0.2. Change this default to get higher or lower precision here.
+
 =back
+
+=head2 Note
+
+You can tag specific <?SQL> commands in the profile log by specifying the B<PROFILE> option in the corresponding <?SQL> commands. This helps identifying specific SQL statements inside the log output.
 
 =head2 Example
 
-The following SQL Statement and Include will be profiled.
+The following SQL Statement and Include will be profiled as "foobar", to "/tmp/profile.log", with all inclusion levels, but only code sections which need longer than 0.005 seconds.
 
-  <?!PROFILE ON>
-  <?SQL SQL="select foo, bla
-             from   bar
-             where  baz=?"
-        PARAMS="$baz"
-        MY VAR="$foo, $bla">
-    $foo $bla<br>
-  <?/SQL>
+  <?!PROFILE
+  	NAME="foobar"
+  	FILENAME="/tmp/profile.log"
+	FILTER="0.005"
+	DEEP>
 
-  <?INCLUDE NAME="/foo/bar.inc">
+    <?SQL SQL="select foo, bla
+               from   bar
+               where  baz=?"
+          PARAMS="$baz"
+          MY VAR="$foo, $bla">
+      $foo $bla<br>
+    <?/SQL>
 
-  <?!/PROFILE OFF>
+    <?INCLUDE NAME="/foo/bar.inc">
 
-  # no profiling here
+  <?!/PROFILE>
+
+  #-- no profiling here
   <?INCLUDE NAME="/bar/foo.inc">
 
-Something like this will appear on STDERR and thus in your webserver error log:
+Here some example profiling output (it's not from the code example above):
 
-  PROFILE 42421 START
-  PROFILE 42421 SQL        select foo, baz   0.0178
-  PROFILE 42421 INCLUDE    /foo/bar.inc      0.0020
-  PROFILE 42421 STOP
+  PROFILE 923 foobar START    ----------------------------------	
+  PROFILE 923 foobar inc in   + Login/Check.code	
+  PROFILE 923 foobar inc out  + Login/Check.code ............... 0.0665
+  PROFILE 923 foobar sql      + select count(*) from MSG_Message
+  PROFILE 923 foobar sql out  + select count(*) from MSG_Message 1.0039 ooooo
+  PROFILE 923 foobar END      SUMMARY ========================== 1.0704 ooooo
 
-The 42421 is the PID of the serving process, so you can differ between outputs of several processes. You see the head of each SQL statement and the name of an Include, followed by the execution time in seconds.
-
-You can use the PROFILE option of the <?SQL> command to replace the output of the SQL statement with a user defined label. See <?SQL> for details.
+923 is the PID of the corresponding process, "foobar" the B<NAME>
+specified in the <?!PROFILE> tag. START/END mark a profiled
+block. "inc in" and "inc out" stands for "entering Include"
+and "leaving Include", "sql" and "sql out" appropriatly for <?SQL>
+statements. The needed time is printed on the right, followed
+by the o-Meter.
 
 =head1 COMMAND <?REQUIRE>
 
@@ -2582,9 +2765,7 @@ Import
 
 =head2 Description
 
-This command imports a module which was created with new.spirit in conjunction with the <?MODULE> command. You can't import other Perl modules, because <?REQUIRE> executes CIPP specific initialization code to establish database connections, if they're needed by the module.
-
-<?REQUIRE> uses internally the Perl command 'require' to import the module. So CIPP Perl Modules are unable to export symbols to the callers namespace. You have to fully quallify function names, or write OO style modules.
+This command loads a module at runtime. A module created with new.spirit in conjunction with the <?MODULE> command, or any other Perl module, which can be found in the Perl library directories.
 
 =head2 Parameter
 
@@ -2594,7 +2775,7 @@ This command imports a module which was created with new.spirit in conjunction w
 
 This is the name of the module you want to use. Nested module names are delimited by ::.  This is the name of the module you provided with the <?MODULE> command.
 
-You may also place a scalar variable here, which contains the name of the module. So it is possible to load modules dynamically at runtime.
+You may also place a B<lexical> scalar variable here (must not contain colons), which has the name of the module. So it is possible to load modules dynamically at runtime.
 
 =back
 
@@ -2605,7 +2786,7 @@ You may also place a scalar variable here, which contains the name of the module
   <?REQUIRE NAME="Test::Module">
 
   <?PERL>
-    my $t = new Test::Module;
+    my $t = Test::Module->new;
     $t->print_foo;
   <?/PERL>
 
@@ -2638,6 +2819,8 @@ If you are not in <?AUTOCOMMIT ON> mode a transaction begins with the first SQL 
 This is the CIPP internal name of the database for this command. In CGI::CIPP or Apache::CIPP environment this name has to be defined in the appropriate global configuration. In a new.spirit environment this is the name of the database configuration object in dot separated notation.
 
 If DB is ommited the project default database is used.
+
+If DB is a variable name (resp. something containing a $ sigil) the content of this variable will be evaluated to the corresponding database name at runtime.
 
 =item B<DBH>
 
@@ -2969,6 +3152,8 @@ Successfully deleted $deleted rows!
 This is the CIPP internal name of the database for this command. In CGI::CIPP or Apache::CIPP environment this name has to be defined in the appropriate global configuration. In a new.spirit environment this is the name of the database configuration object in dot separated notation.
 
 If DB is ommited the project default database is used.
+
+If DB is a variable name (resp. something containing a $ sigil) the content of this variable will be evaluated to the corresponding database name at runtime.
 
 =item B<DBH>
 
